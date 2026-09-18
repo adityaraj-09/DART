@@ -205,7 +205,7 @@ from dart.client import DartClient
 | [Mesh](docs/mesh.md) | Pin, handover, routing order |
 | [Waiting plugin](docs/vllm-plugin.md) | In-process `waiting` + pinned blocks |
 | [Limitations](docs/limitations.md) | HTTP admission, prefix-cache eviction, scope |
-| [Paper (PDF)](paper/dart_idd.pdf) | arXiv-style preprint — Aditya Raj |
+| [Paper (PDF)](paper/dart_idd.pdf) | Full-length arXiv-style preprint — Aditya Raj |
 
 ```bash
 cd paper && make          # latexmk -pdf dart_idd.tex
