@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "DART: Demand-Addressed Runtime Tokens — Interest-Driven Decode for LLMs"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = { file = "LICENSE" }
 authors = [{ name = "DART" }]
 keywords = ["llm", "inference", "vllm", "interest", "continuation", "idd"]
 classifiers = [
@@ -36,14 +36,18 @@ llamacpp = ["httpx>=0.27"]
 [project.entry-points."vllm.general_plugins"]
 dart_idd = "dart.engine.vllm_plugin:register"
 
+[project.scripts]
+dart = "dart.cli:main"
+
 [project.urls]
-Documentation = "docs/architecture.md"
+Documentation = "https://github.com/adityaraj-09/DART/blob/main/docs/architecture.md"
+Source = "https://github.com/adityaraj-09/DART"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-dart = ["static/*"]
+dart = ["api/static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

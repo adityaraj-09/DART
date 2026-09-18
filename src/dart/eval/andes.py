@@ -17,7 +17,7 @@ from typing import Any
 from dart.engine.base import Engine
 from dart.engine.stats import stats_of
 from dart.engine.synthetic import SyntheticEngine
-from dart.types import EngineState, Prompt
+from dart.core.types import EngineState, Prompt
 
 
 async def run_andes(

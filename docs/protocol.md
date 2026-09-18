@@ -83,7 +83,7 @@ Without `X-Dart-Pace`, the facade uses `DrainPacer`: credit as each SSE chunk is
 
 ## Lease
 
-`sign_lease` / `verify_lease` in `src/dart/lease.py`. Token is `base64url(json).base64url(hmac-sha256)`.
+`sign_lease` / `verify_lease` in `src/dart/core/lease.py`. Token is `base64url(json).base64url(hmac-sha256)`.
 
 Fields: `cont_id`, `model_hash`, `model_id`, `kv_root`, `pos`, `w_max`, `decode_quota`, `expiry_unix`, `producer_hint`, `startup_credit`.
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dart.experiment import compare, run_workload
-from dart.sdk import DartClient, DrainPacer
+from dart.eval.experiment import compare, run_workload
+from dart.client.sdk import DartClient, DrainPacer
 
 
 async def test_push_generates_more_than_slow_reader() -> None:
@@ -22,8 +22,8 @@ async def test_push_workload_fills_quota() -> None:
 
 async def test_sdk_inprocess_stream() -> None:
     from dart.engine.synthetic import SyntheticEngine
-    from dart.runtime import DartRuntime
-    from dart.types import RuntimeConfig
+    from dart.core.runtime import DartRuntime
+    from dart.core.types import RuntimeConfig
 
     rt = DartRuntime(SyntheticEngine(seed=9), RuntimeConfig(poll_interval_s=0.001, decode_quota=32))
     await rt.start()

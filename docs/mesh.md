@@ -4,7 +4,7 @@ DART’s continuation is `(lease, kv_root)`, not a vLLM request. This page is wh
 
 ## Pin by `kv_root`
 
-`PinnedKVPool` (`src/dart/pin.py`) indexes **engine state** by Merkle `kv_root`:
+`PinnedKVPool` (`src/dart/kv/pin.py`) indexes **engine state** by Merkle `kv_root`:
 
 - snapshot: token ids, sampler, extents, pos, segment index
 - holder: which producer currently has it on GPU/host
@@ -16,7 +16,7 @@ DART’s continuation is `(lease, kv_root)`, not a vLLM request. This page is wh
 
 ## Connectors (LMCache / NIXL shaped)
 
-`src/dart/kvconn.py`:
+`src/dart/kv/kvconn.py`:
 
 | Kind | `put` / `get` | `transfer(src → dst)` | GPU / RDMA required |
 |---|---|---|---|
@@ -29,7 +29,7 @@ A connector miss is a miss. Decode already succeeded if `put` fails; the runtime
 
 ## Routing order
 
-`InterestRouter` (`src/dart/mesh.py`):
+`InterestRouter` (`src/dart/mesh/router.py`):
 
 ```text
 Interest

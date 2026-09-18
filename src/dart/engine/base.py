@@ -6,7 +6,7 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from dart.types import EngineState, KVExtent, ModelConfig, Prompt
+from dart.core.types import EngineState, KVExtent, ModelConfig, Prompt
 
 
 class PrefillResult(BaseModel):

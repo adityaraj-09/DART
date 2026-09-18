@@ -4,9 +4,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from dart.engine.synthetic import SyntheticEngine
-from dart.gateway import create_app
-from dart.runtime import DartRuntime
-from dart.types import RuntimeConfig
+from dart.api.gateway import create_app
+from dart.core.runtime import DartRuntime
+from dart.core.types import RuntimeConfig
 
 
 @pytest.fixture

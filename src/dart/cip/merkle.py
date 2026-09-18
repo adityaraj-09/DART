@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 
-from dart.types import KVExtent
+from dart.core.types import KVExtent
 
 
 def _h(data: bytes) -> bytes:

@@ -17,9 +17,9 @@ from dart.engine.base import DecodeResult, PrefillResult
 from dart.engine.stats import KernelStats
 from dart.engine.synthetic import SyntheticEngine
 from dart.engine.vllm_sched import CreditGatedScheduler, RequestStatus
-from dart.errors import EngineError
-from dart.merkle import bytes_per_extent
-from dart.types import EngineState, ModelConfig, Prompt
+from dart.core.errors import EngineError
+from dart.cip.merkle import bytes_per_extent
+from dart.core.types import EngineState, ModelConfig, Prompt
 
 
 def _vllm_importable() -> bool:
