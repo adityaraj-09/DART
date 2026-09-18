@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from dart.engine.cache_only import CacheOnlyEngine
+from dart.engine.hf import HuggingFaceEngine
 from dart.engine.llamacpp import LlamaCppEngine
 from dart.engine.synthetic import SyntheticEngine
 from dart.engine.vllm import VLLMChatEngine
@@ -20,7 +21,14 @@ def build_engine(
     model: str | None = None,
     *,
     step_latency_s: float = 0.0,
-) -> SyntheticEngine | VLLMChatEngine | LlamaCppEngine | CacheOnlyEngine | InProcessVLLMEngine:
+) -> (
+    SyntheticEngine
+    | VLLMChatEngine
+    | LlamaCppEngine
+    | CacheOnlyEngine
+    | InProcessVLLMEngine
+    | HuggingFaceEngine
+):
     kind = (kind or os.environ.get("DART_ENGINE") or "synthetic").lower()
     model = model or os.environ.get("DART_MODEL") or "dart-synth-8b"
     if kind in {"synthetic", "synth", "local"}:
@@ -31,10 +39,13 @@ def build_engine(
         return VLLMChatEngine(model)
     if kind in {"llamacpp", "llama.cpp", "llama"}:
         return LlamaCppEngine(model)
+    if kind in {"hf", "huggingface", "transformers"}:
+        return HuggingFaceEngine(model)
     if kind in {"cache", "cas", "peer"}:
         return CacheOnlyEngine(model)
     raise ValueError(
-        f"unknown engine {kind!r}; use synthetic | vllm | vllm-inprocess | llamacpp | cache"
+        "unknown engine "
+        f"{kind!r}; use synthetic | hf | vllm | vllm-inprocess | llamacpp | cache"
     )
 
 

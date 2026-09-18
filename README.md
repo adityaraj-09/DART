@@ -42,6 +42,17 @@ dart serve --engine synthetic --port 8090
 
 Open [http://127.0.0.1:8090](http://127.0.0.1:8090). Stream at 30 tok/s and watch kernel launches, skipped steps, and KV high-water on the right. Disconnect zeros credit and stops decode.
 
+The synthetic engine is a word list for tests. For a **real** (small) model on CPU:
+
+```bash
+pip install -e ".[hf]"
+dart serve --engine hf --model HuggingFaceTB/SmolLM2-135M-Instruct --port 8090
+```
+
+The console header shows `HuggingFaceTB/SmolLM2-135M-Instruct · HuggingFaceEngine`. That is the model used in the recording below.
+
+<video src="docs/assets/smollm2_idd_console.mp4" controls width="920"></video>
+
 ```bash
 curl -N http://127.0.0.1:8090/v1/chat/completions \
   -H 'content-type: application/json' \
@@ -111,7 +122,8 @@ Consumer                         DART                              Engine
 
 | Flag | Role |
 |---|---|
-| `--engine synthetic` | Deterministic CPU producer with real KV-extent accounting. Default for demo and tests. |
+| `--engine synthetic` | Deterministic CPU producer with real KV-extent accounting. Default for tests. Word-list output, not a language model. |
+| `--engine hf` | In-process Hugging Face model. Demo weights: **HuggingFaceTB/SmolLM2-135M-Instruct** (135M, CPU). |
 | `--engine vllm` | HTTP adapter to a live vLLM server (`DART_VLLM_URL`). Each Interest is `max_tokens=W`. Enable `--enable-prefix-caching`. |
 | `--engine vllm-inprocess` | Waiting-queue plugin: admit once, park in `waiting` with pinned KV when `W=0`. |
 | `--engine llamacpp` | HTTP adapter to llama.cpp (`DART_LLAMACPP_URL`). |
@@ -130,7 +142,8 @@ dart serve --engine vllm --model "$DART_MODEL"
 ## Operations
 
 ```bash
-dart serve --engine synthetic --port 8090          # CIP + OpenAI facade
+dart serve --engine synthetic --port 8090          # CIP + OpenAI facade (word-list producer)
+dart serve --engine hf --port 8090                 # SmolLM2-135M-Instruct on CPU
 dart mesh --nodes 3 --connector nixl --port 8090   # in-process multi-node router
 dart peer --cas-dir /var/dart/cas --port 8091      # FileCAS peer, no GPU
 dart experiment --suite paper                      # kill-test, Andes, grammar, CAS
@@ -161,7 +174,7 @@ src/dart/
   cip/                       CIP names and Merkle kv_root
   kv/                        Token CAS, pinned KV, NIXL/LMCache connectors
   mesh/                      Interest router
-  engine/                    Synthetic, vLLM HTTP, vLLM in-process, llama.cpp
+  engine/                    Synthetic, HuggingFace, vLLM HTTP, vLLM in-process, llama.cpp
   api/                       FastAPI gateway and demo UI
   client/                    SDK and pacers
   eval/                      Kill-test and paper suites

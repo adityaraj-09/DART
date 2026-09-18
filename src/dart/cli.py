@@ -17,8 +17,16 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     serve = sub.add_parser("serve", help="Run the CIP + OpenAI-compatible gateway")
-    serve.add_argument("--engine", default=os.environ.get("DART_ENGINE", "synthetic"))
-    serve.add_argument("--model", default=os.environ.get("DART_MODEL", "dart-synth-8b"))
+    serve.add_argument(
+        "--engine",
+        default=os.environ.get("DART_ENGINE", "synthetic"),
+        help="synthetic | hf | vllm | vllm-inprocess | llamacpp | cache",
+    )
+    serve.add_argument(
+        "--model",
+        default=os.environ.get("DART_MODEL", "dart-synth-8b"),
+        help="Model id. For --engine hf, default is HuggingFaceTB/SmolLM2-135M-Instruct.",
+    )
     serve.add_argument("--host", default="0.0.0.0")
     serve.add_argument("--port", type=int, default=int(os.environ.get("DART_PORT", "8090")))
     serve.add_argument("--cas-dir", default=os.environ.get("DART_CAS_DIR"))
