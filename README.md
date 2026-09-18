@@ -2,24 +2,45 @@
 
 **Demand-Addressed Runtime Tokens**
 
-DART is a continuation runtime for autoregressive decode. Outstanding **Interests** are the only thing that may run a decode kernel. Consumers pull tokens they can absorb; producers generate only that window; any peer that already holds the named object can answer without a GPU.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+[![OpenAI-compatible](https://img.shields.io/badge/API-OpenAI%20compatible-6ee7b7)](#http-api)
+
+> Outstanding Interests are the only thing that may run a decode kernel.
+
+DART is a continuation runtime that sits in front of an existing LLM engine. Consumers pull the tokens they can absorb. Producers generate only that window. Any peer that already holds the named object answers without a GPU.
+
+It is a control plane, not a GPU fleet. vLLM and llama.cpp stay the kernels.
 
 ```text
 /cip/<model-hash>/<kv-root>/tokens/seg/<i>
 ```
 
-DART sits in front of an existing kernel (vLLM, llama.cpp, or the in-repo synthetic producer). It does not replace a GPU fleet.
+<p align="center">
+  <img src="docs/assets/console.png" alt="DART console: credit-window stream with live kernel and KV metrics" width="920" />
+</p>
+
+---
+
+## Install
+
+```bash
+git clone https://github.com/adityaraj-09/DART.git
+cd DART
+pip install -e ".[dev]"
+```
+
+Python 3.11+. Optional extras: `[vllm]`, `[llamacpp]`.
 
 ---
 
 ## Quick start
 
 ```bash
-pip install -e ".[dev]"
 dart serve --engine synthetic --port 8090
 ```
 
-Open [http://127.0.0.1:8090](http://127.0.0.1:8090). Stream at 30 tok/s and watch kernel launches, skipped steps, and KV high-water on the right. Disconnect stops decode.
+Open [http://127.0.0.1:8090](http://127.0.0.1:8090). Stream at 30 tok/s and watch kernel launches, skipped steps, and KV high-water on the right. Disconnect zeros credit and stops decode.
 
 ```bash
 curl -N http://127.0.0.1:8090/v1/chat/completions \
@@ -43,17 +64,25 @@ async for seg in DartClient(runtime=rt).stream(
 
 ---
 
-## Why it exists
+## Product
 
 Most serving stacks generate as fast as the GPU allows, then try to deliver. A token with no consumer credit is a wasted residual-stream step: energy, KV pages, and batch slots.
 
 DART inverts that. An Interest is a compute capability. Zero Interests means zero decode. Cache hits never touch the kernel.
 
-| Approach | Behavior |
-|---|---|
-| Push / “max occupancy” | Generate, then buffer |
-| Andes | Generate, then pause the watermark |
-| DART | Do not generate until credited |
+| | Push / max occupancy | Andes | DART |
+|---|---|---|---|
+| Generate | Then buffer | Then pause the watermark | Only after credit |
+| Stop | Drain the buffer | Pause generation | Do not launch the kernel |
+| Identity | HTTP request | HTTP request | Named continuation + `kv_root` |
+
+**What you get**
+
+- **Credit-gated decode** — window `W` is tokens, not bytes. Congestion control is the scheduler.
+- **Named continuations** — live generation is an address space. Changing machines is answering the next Interest from a new locator.
+- **CAS, then pin, then decode** — named Data is free; pinned KV resumes without re-prefill; otherwise the cheapest producer runs.
+- **Drop-in HTTP** — OpenAI-compatible `/v1/chat/completions` with `X-Dart-Pace` / `X-Dart-Window`. Disconnect closes the continuation.
+- **Mesh** — pin holders, FileCAS peers, and NIXL/LMCache-shaped handover without live-migrating a request.
 
 ---
 
@@ -71,10 +100,10 @@ Consumer                         DART                              Engine
    │◄───────────────────────────────│◄────────────────────────────────│
 ```
 
-1. **Named continuations** — live generation is an address space, not an HTTP request.
-2. **Credit window** — `W` is tokens, not bytes. Congestion control is the scheduler.
-3. **CAS then pin then decode** — named Data is free; pinned KV resumes without re-prefill; otherwise the cheapest producer runs.
-4. **Handover** — changing machines is answering the next Interest from a new locator, not live-migrating a request.
+1. Prefill once. The runtime publishes a lease and a Merkle `kv_root`, not a process snapshot.
+2. The consumer issues Interests for the next objects it can absorb.
+3. DART answers from CAS, from a pin holder, or by crediting the engine for at most `W` tokens.
+4. Handover is a new locator on the next Interest — not a live-migrated HTTP request.
 
 ---
 
@@ -109,10 +138,12 @@ dart experiment --suite mesh
 dart experiment --suite waiting
 ```
 
+### HTTP API
+
 | Surface | Purpose |
 |---|---|
 | `POST /v1/chat/completions` | OpenAI-compatible facade. `X-Dart-Pace`, `X-Dart-Window`. Disconnect closes the continuation. |
-| `POST /v1/continuations` + `.../interest` | CIP HTTP |
+| `POST /v1/continuations` + `.../interest` | CIP over HTTP |
 | `GET /v1/mesh`, `POST /v1/handover`, `GET /v1/kv` | Pin, route, adopt |
 | `WS /v1/cip` | Framed Interest / Data / Nack |
 | `GET /metrics`, `GET /v1/metrics` | Prometheus and JSON |
@@ -125,7 +156,7 @@ Environment: `DART_ENGINE`, `DART_MODEL`, `DART_SECRET`, `DART_CAS_DIR`, `DART_K
 
 ```text
 src/dart/
-  cli.py factory.py          Entry points
+  cli.py  factory.py         Entry points
   core/                      Runtime, leases, congestion control, types
   cip/                       CIP names and Merkle kv_root
   kv/                        Token CAS, pinned KV, NIXL/LMCache connectors
@@ -167,4 +198,6 @@ pytest -q
 
 ## Status
 
-Apache-2.0. DART is a control plane. vLLM and llama.cpp remain the kernels. The HTTP vLLM path re-enters admission; `--engine vllm-inprocess` keeps the request in `waiting` with pinned blocks. Real NIXL RDMA and LMCache GPU pages are optional; tests use in-process memcpy.
+DART is Apache-2.0. The HTTP vLLM path re-enters admission; `--engine vllm-inprocess` keeps the request in `waiting` with pinned blocks. Real NIXL RDMA and LMCache GPU pages are optional; tests use in-process memcpy.
+
+See [limitations](docs/limitations.md) for what this repository claims and what it does not.
