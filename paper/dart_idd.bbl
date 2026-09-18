@@ -1,4 +1,4 @@
-\begin{thebibliography}{15}
+\begin{thebibliography}{17}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -29,6 +29,14 @@ Amey Agrawal, Nitin Kedia, Ashish Panwar, Jayashree Mohan, Nipun Kwatra,
   Sarathi-Serve}.
 \newblock In \emph{18th USENIX Symposium on Operating Systems Design and
   Implementation}, 2024.
+
+\bibitem[Wu et~al.(2023)Wu, Zhong, Zhang, Liu, Liu, Sun, Huang, Liu, and
+  Jin]{hao2024fastserve}
+Bingyang Wu, Yinmin Zhong, Zili Zhang, Shengyu Liu, Fangyue Liu, Yuanhang Sun,
+  Gang Huang, Xuanzhe Liu, and Xin Jin.
+\newblock {FastServe: Fast Distributed Inference Serving for Large Language
+  Models}.
+\newblock In \emph{arXiv preprint arXiv:2305.05920}, 2023.
 
 \bibitem[Zhong et~al.(2024)Zhong, Liu, Chen, Hu, Zhu, Liu, Jin, and
   Zhang]{zhong2024distserve}
@@ -65,13 +73,13 @@ Yuhan Liu, Hanchen Li, Yihua Cheng, Siddhant Ray, Yuyang Huang, Qizheng Zhang,
 \newblock \emph{Proceedings of the ACM SIGCOMM 2024 Conference},
   2024{\natexlab{a}}.
 
-\bibitem[Liu et~al.(2024{\natexlab{b}})Liu, Lu, Shi, Putta, Wang, Chen, Chen,
-  Zhang, Cheng, Du, et~al.]{liu2024andes}
-Jiachen Liu, Zhiyu Lu, Shuowei Shi, Alexander Putta, Peter Wang, Lymeng Chen,
-  Ang Chen, Fan Zhang, Yiping Cheng, Yifan Du, et~al.
-\newblock {Andes: Defining and Enhancing Quality-of-Experience in {LLM}-Based
-  Text Streaming Services}.
-\newblock \emph{arXiv preprint arXiv:2404.16283}, 2024{\natexlab{b}}.
+\bibitem[Sun et~al.(2024)Sun, Huang, Zhao, Xiao, Zhang, Li, and
+  Lin]{sun2024llumnix}
+Biao Sun, Ziming Huang, Hanyu Zhao, Wencong Xiao, Xinyi Zhang, Yong Li, and Wei
+  Lin.
+\newblock {Llumnix: Dynamic Scheduling for Large Language Model Serving}.
+\newblock In \emph{18th USENIX Symposium on Operating Systems Design and
+  Implementation}, 2024.
 
 \bibitem[Dao et~al.(2022)Dao, Fu, Ermon, Rudra, and
   R{\'e}]{dao2022flashattention}
@@ -87,21 +95,19 @@ Reiner Pope, Sholto Douglas, Aakanksha Chowdhery, Jacob Devlin, James Bradbury,
 \newblock {Efficiently Scaling Transformer Inference}.
 \newblock In \emph{Proceedings of Machine Learning and Systems}, 2023.
 
-\bibitem[Sun et~al.(2024)Sun, Huang, Zhao, Xiao, Zhang, Li, and
-  Lin]{sun2024llumnix}
-Biao Sun, Ziming Huang, Hanyu Zhao, Wencong Xiao, Xinyi Zhang, Yong Li, and Wei
-  Lin.
-\newblock {Llumnix: Dynamic Scheduling for Large Language Model Serving}.
-\newblock In \emph{18th USENIX Symposium on Operating Systems Design and
-  Implementation}, 2024.
+\bibitem[Liu et~al.(2024{\natexlab{b}})Liu, Lu, Shi, Putta, Wang, Chen, Chen,
+  Zhang, Cheng, Du, et~al.]{liu2024andes}
+Jiachen Liu, Zhiyu Lu, Shuowei Shi, Alexander Putta, Peter Wang, Lymeng Chen,
+  Ang Chen, Fan Zhang, Yiping Cheng, Yifan Du, et~al.
+\newblock {Andes: Defining and Enhancing Quality-of-Experience in {LLM}-Based
+  Text Streaming Services}.
+\newblock \emph{arXiv preprint arXiv:2404.16283}, 2024{\natexlab{b}}.
 
-\bibitem[Jacobson et~al.(2009)Jacobson, Smetters, Thornton, Plass, Briggs, and
-  Braynard]{jacobson2009ndn}
-Van Jacobson, Diana~K. Smetters, James~D. Thornton, Michael~F. Plass,
-  Nicholas~H. Briggs, and Rebecca~L. Braynard.
-\newblock {Networking Named Content}.
-\newblock In \emph{Proceedings of the 5th International Conference on Emerging
-  Networking Experiments and Technologies}, 2009.
+\bibitem[Jacobson(1988)]{jacobson1988congestion}
+Van Jacobson.
+\newblock {Congestion Avoidance and Control}.
+\newblock \emph{ACM SIGCOMM Computer Communication Review}, 18\penalty0
+  (4):\penalty0 314--329, 1988.
 
 \bibitem[Curley et~al.(2024)Curley, Pugin, Nandakumar, Vasiliev, and
   Swett]{ietf-moqt}
@@ -124,5 +130,13 @@ Yixin Dong, Charlie~F. Jiang, Yilong Yang, Yuzhen Lin, Zixuan Zhu, Chen Li,
 \newblock {XGrammar: Flexible and Efficient Structured Generation Engine for
   Large Language Models}.
 \newblock \emph{arXiv preprint arXiv:2411.15100}, 2024.
+
+\bibitem[Jacobson et~al.(2009)Jacobson, Smetters, Thornton, Plass, Briggs, and
+  Braynard]{jacobson2009ndn}
+Van Jacobson, Diana~K. Smetters, James~D. Thornton, Michael~F. Plass,
+  Nicholas~H. Briggs, and Rebecca~L. Braynard.
+\newblock {Networking Named Content}.
+\newblock In \emph{Proceedings of the 5th International Conference on Emerging
+  Networking Experiments and Technologies}, 2009.
 
 \end{thebibliography}
