@@ -2,6 +2,20 @@
 
 DART’s claim is the inversion: **outstanding Interests are the only thing that may run a decode kernel.** The HTTP adapters implement that invariant without forking vLLM. They also have limits a reviewer will probe. This page is the paper’s limitations paragraph, not a disclaimer dump.
 
+## What this is not (scope)
+
+**Do state this.** DART is not a finished GPU fleet that replaces vLLM. It is a continuation runtime and CIP control plane. vLLM and llama.cpp remain the kernels.
+
+**Do not state the stale version.** “The next slice is a live vLLM/llama.cpp process behind the same CIP” is already true: `dart serve --engine vllm` and `--engine llamacpp` sit in front of those processes today. That is the production GPU path, not future work.
+
+**What is actually next** (engineering, not the idea):
+
+- In-process vLLM scheduler plugin: request stays in `waiting` with pinned KV when `W=0` (avoids HTTP admission re-entry and prefix-cache eviction).
+- Named KV handover via LMCache / NIXL so a new locator can answer the next Interest.
+- Multi-node Interest routing (a serving mesh), not one HTTP frontend.
+
+Say that in the paper. Do not promise a fleet you did not build, and do not hide the adapters you did.
+
 ## HTTP path re-enters admission
 
 `VLLMChatEngine` / `LlamaCppEngine` turn each credited Interest into a new `chat.completions` / `/completion` with `max_tokens=W` (resp. `n_predict=W`). That **re-enters the engine’s request admission path**. It is not a request that stayed in `scheduler.waiting` with its blocks pinned.

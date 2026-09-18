@@ -13,6 +13,8 @@ A consumer (terminal, compositor, TTS, JSON parser, tool runtime) pulls what it 
 
 This is not Andes (push then pace), not MOQT (delivery of already-generated tokens), not LMCache (store). It closes the loop: **Interest authorizes decode**.
 
+DART does **not** replace vLLM as a GPU fleet. A live vLLM or llama.cpp process already sits behind the same CIP (`--engine vllm` / `--engine llamacpp`). The next slice is pinned in-process KV and multi-node Interest routing, not “wire up a kernel.”
+
 Architecture: [`docs/architecture.md`](docs/architecture.md) · Protocol: [`docs/protocol.md`](docs/protocol.md) · CC: [`docs/congestion-control.md`](docs/congestion-control.md) · Engines: [`docs/engine-adapters.md`](docs/engine-adapters.md)
 
 ## Install

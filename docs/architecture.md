@@ -8,6 +8,8 @@ A live generation is not an HTTP request. It is an address space of objects. Con
 
 This document is the system that is implemented in this repository. Paper-facing eval and the HTTP/vLLM honesty clause: [`limitations.md`](./limitations.md).
 
+DART is a continuation runtime, not a GPU fleet that replaces vLLM. Live vLLM/llama.cpp behind CIP is already the adapter path; the unfinished slice is in-process pin + mesh routing.
+
 **Paper suites:** `dart experiment --suite paper` (kill-test, Andes-complete, grammar jump vs mask, CAS peer).
 
 ---
