@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dart.cc import CongestionController
+from dart.core.cc import CongestionController
 
 
 def test_grant_and_ack_slow_start() -> None:

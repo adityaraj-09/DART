@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dart.protocol import CipName, Data
-from dart.store import FileCAS, KVStore, MemoryCAS
-from dart.types import KVExtent
+from dart.cip.protocol import CipName, Data
+from dart.kv.store import FileCAS, KVStore, MemoryCAS
+from dart.core.types import KVExtent
 
 
 def test_memory_cas_hit_miss() -> None:

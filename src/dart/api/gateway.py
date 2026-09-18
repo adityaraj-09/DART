@@ -17,10 +17,10 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
-from dart.errors import AmplificationError, DartError, HandoverError, InterestNack, LeaseError, PinMissError
-from dart.protocol import CipMessage, CipName, Interest
-from dart.runtime import ContinuationHandle, DartRuntime
-from dart.types import ChatMessage, InterestKind, Prompt
+from dart.core.errors import AmplificationError, DartError, HandoverError, InterestNack, LeaseError, PinMissError
+from dart.cip.protocol import CipMessage, CipName, Interest
+from dart.core.runtime import ContinuationHandle, DartRuntime
+from dart.core.types import ChatMessage, InterestKind, Prompt
 
 STATIC = Path(__file__).parent / "static"
 
@@ -402,7 +402,7 @@ async def _stream_segments(
     pace: str | None,
     max_tokens: int,
 ) -> AsyncIterator[str]:
-    from dart.consumers import DrainPacer, ReadingPacer
+    from dart.client.consumers import DrainPacer, ReadingPacer
 
     pacer: DrainPacer | ReadingPacer
     if pace:
@@ -442,8 +442,8 @@ def _usage(runtime: DartRuntime, handle: ContinuationHandle) -> dict[str, int]:
 def create_peer_app(cas_dir: str):
     """Second process: FileCAS only. No decode kernel."""
     from dart.engine.cache_only import CacheOnlyEngine
-    from dart.store import FileCAS
-    from dart.types import RuntimeConfig
+    from dart.kv.store import FileCAS
+    from dart.core.types import RuntimeConfig
 
     cas = FileCAS(cas_dir)
     runtime = DartRuntime(CacheOnlyEngine(), RuntimeConfig(cas_dir=cas_dir), cas=cas)

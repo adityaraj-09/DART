@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from dart.engine.base import DecodeResult, PrefillResult
 from dart.engine.stats import KernelStats
-from dart.errors import EngineError
-from dart.types import EngineState, ModelConfig, Prompt
+from dart.core.errors import EngineError
+from dart.core.types import EngineState, ModelConfig, Prompt
 
 
 class CacheOnlyEngine:

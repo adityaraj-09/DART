@@ -16,8 +16,8 @@ from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from dart.errors import HandoverError
-from dart.types import EngineState
+from dart.core.errors import HandoverError
+from dart.core.types import EngineState
 
 
 class KVBlob(BaseModel):

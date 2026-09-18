@@ -9,9 +9,9 @@ from httpx import ASGITransport, AsyncClient
 
 from dart.engine.cache_only import CacheOnlyEngine
 from dart.engine.synthetic import SyntheticEngine
-from dart.errors import HandoverError, InterestNack, PinMissError
-from dart.gateway import create_app
-from dart.kvconn import (
+from dart.core.errors import HandoverError, InterestNack, PinMissError
+from dart.api.gateway import create_app
+from dart.kv.kvconn import (
     FileKVConnector,
     KVBlob,
     LMCacheConnector,
@@ -20,11 +20,11 @@ from dart.kvconn import (
     build_connector,
 )
 from dart.mesh import InterestRouter, MeshNode, RouteKind, build_local_mesh
-from dart.pin import PinnedKVPool
-from dart.protocol import CipName, Interest
-from dart.runtime import DartRuntime
-from dart.store import MemoryCAS
-from dart.types import EngineState, Prompt, RuntimeConfig
+from dart.kv.pin import PinnedKVPool
+from dart.cip.protocol import CipName, Interest
+from dart.core.runtime import DartRuntime
+from dart.kv.store import MemoryCAS
+from dart.core.types import EngineState, Prompt, RuntimeConfig
 
 
 def _cfg(**kw: object) -> RuntimeConfig:
@@ -407,7 +407,7 @@ async def test_gateway_kv_handover_and_mesh_interest() -> None:
 
 
 async def test_experiment_mesh_suite_ok() -> None:
-    from dart.experiment import mesh_handover_suite
+    from dart.eval.experiment import mesh_handover_suite
 
     report = await mesh_handover_suite()
     assert report["ok"] is True

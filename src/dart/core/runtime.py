@@ -13,16 +13,16 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
-from dart.cc import CongestionController
+from dart.core.cc import CongestionController
 from dart.engine.base import Engine
 from dart.engine.stats import stats_of
-from dart.errors import AmplificationError, InterestNack, LeaseError, PinMissError
-from dart.kvconn import KVBlob, KVConnector
-from dart.lease import ContinuationLease, sign_lease, verify_lease
-from dart.pin import PinnedKVPool
-from dart.protocol import CipName, Data, Interest, Nack, TokenSegment
-from dart.store import FileCAS, KVStore, MemoryCAS
-from dart.types import (
+from dart.core.errors import AmplificationError, InterestNack, LeaseError, PinMissError
+from dart.kv.kvconn import KVBlob, KVConnector
+from dart.core.lease import ContinuationLease, sign_lease, verify_lease
+from dart.kv.pin import PinnedKVPool
+from dart.cip.protocol import CipName, Data, Interest, Nack, TokenSegment
+from dart.kv.store import FileCAS, KVStore, MemoryCAS
+from dart.core.types import (
     ChatMessage,
     ContinuationMetrics,
     EngineState,
@@ -32,7 +32,7 @@ from dart.types import (
     RuntimeConfig,
 )
 
-logger = logging.getLogger("dart.runtime")
+logger = logging.getLogger("dart.core.runtime")
 
 
 @dataclass

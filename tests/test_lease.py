@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from dart.errors import AmplificationError, LeaseError
-from dart.lease import ContinuationLease, sign_lease, verify_lease
+from dart.core.errors import AmplificationError, LeaseError
+from dart.core.lease import ContinuationLease, sign_lease, verify_lease
 
 
 def _lease(**kw: object) -> ContinuationLease:

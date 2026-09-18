@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import quote, unquote
 
-from dart.protocol import Data
-from dart.types import KVExtent
+from dart.cip.protocol import Data
+from dart.core.types import KVExtent
 
 
 class ContentStore(Protocol):

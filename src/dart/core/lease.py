@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from dart.errors import AmplificationError, LeaseError
+from dart.core.errors import AmplificationError, LeaseError
 
 
 def _b64e(raw: bytes) -> str:

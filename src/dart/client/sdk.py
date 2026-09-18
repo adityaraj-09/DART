@@ -7,10 +7,10 @@ from typing import Any
 
 import httpx
 
-from dart.consumers import DrainPacer, JsonNeedPacer, Pacer, ReadingPacer, TtsPacer
-from dart.protocol import Data
-from dart.runtime import ContinuationHandle, DartRuntime
-from dart.types import ChatMessage
+from dart.client.consumers import DrainPacer, JsonNeedPacer, Pacer, ReadingPacer, TtsPacer
+from dart.cip.protocol import Data
+from dart.core.runtime import ContinuationHandle, DartRuntime
+from dart.core.types import ChatMessage
 
 
 class DartClient:

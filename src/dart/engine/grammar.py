@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dart.engine.base import DecodeResult, PrefillResult
 from dart.engine.synthetic import SyntheticEngine
-from dart.types import EngineState, Prompt
+from dart.core.types import EngineState, Prompt
 
 _SPAN_JSON = {
     "next-value": '{"status":"ok","id":7}',

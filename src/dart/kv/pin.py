@@ -14,8 +14,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from dart.errors import PinMissError
-from dart.types import EngineState, KVExtent
+from dart.core.errors import PinMissError
+from dart.core.types import EngineState, KVExtent
 
 
 @dataclass

@@ -6,15 +6,15 @@ import asyncio
 import time
 from typing import Any, Literal
 
-from dart.andes import run_andes, run_push
-from dart.consumers import DrainPacer, JsonNeedPacer, ReadingPacer
+from dart.eval.andes import run_andes, run_push
+from dart.client.consumers import DrainPacer, JsonNeedPacer, ReadingPacer
 from dart.engine.grammar import JumpForwardEngine, LogitMaskedEngine, jump_span_launches, masked_span_launches
 from dart.engine.stats import stats_of
 from dart.engine.synthetic import SyntheticEngine
-from dart.protocol import CipName, Interest
-from dart.runtime import DartRuntime
-from dart.store import FileCAS
-from dart.types import RuntimeConfig
+from dart.cip.protocol import CipName, Interest
+from dart.core.runtime import DartRuntime
+from dart.kv.store import FileCAS
+from dart.core.types import RuntimeConfig
 
 
 Mode = Literal["push", "reading", "api", "json"]
@@ -283,7 +283,7 @@ async def paper_suite(
 async def mesh_handover_suite() -> dict[str, Any]:
     """Pin resume, CAS route, pin-holder preference, NIXL handover without prefill."""
     from dart.mesh import build_local_mesh
-    from dart.protocol import CipName, Interest
+    from dart.cip.protocol import CipName, Interest
 
     mesh = build_local_mesh(
         3,
@@ -376,7 +376,7 @@ async def waiting_plugin_suite() -> dict[str, Any]:
     from dart.engine.fake_http import FakeCounters, create_fake_vllm_app
     from dart.engine.vllm import VLLMChatEngine
     from dart.engine.vllm_inprocess import InProcessVLLMEngine
-    from dart.protocol import CipName, Interest
+    from dart.cip.protocol import CipName, Interest
 
     cfg = RuntimeConfig(poll_interval_s=0.001, decode_quota=32, segment_size=8, t_decode_s=0.005)
     eng = InProcessVLLMEngine(seed=2)

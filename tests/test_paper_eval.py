@@ -8,18 +8,18 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from dart.andes import run_andes, run_push
+from dart.eval.andes import run_andes, run_push
 from dart.engine.cache_only import CacheOnlyEngine
 from dart.engine.fake_http import FakeCounters, create_fake_llamacpp_app, create_fake_vllm_app
 from dart.engine.llamacpp import LlamaCppEngine
 from dart.engine.stats import stats_of
 from dart.engine.synthetic import SyntheticEngine
 from dart.engine.vllm import VLLMChatEngine
-from dart.experiment import andes_complete, cas_peer_hit, grammar_ablation
-from dart.protocol import CipName, Interest
-from dart.runtime import DartRuntime
-from dart.store import FileCAS
-from dart.types import EngineState, Prompt, RuntimeConfig
+from dart.eval.experiment import andes_complete, cas_peer_hit, grammar_ablation
+from dart.cip.protocol import CipName, Interest
+from dart.core.runtime import DartRuntime
+from dart.kv.store import FileCAS
+from dart.core.types import EngineState, Prompt, RuntimeConfig
 
 
 async def test_vllm_fake_kernel_launches_match_remote() -> None:
@@ -118,7 +118,7 @@ async def test_cas_peer_second_process_no_gpu(tmp_path: Path) -> None:
     name = report["name"]
     cas_dir = str(tmp_path / "cas")
     code = (
-        "from dart.store import FileCAS\n"
+        "from dart.kv.store import FileCAS\n"
         f"cas = FileCAS({cas_dir!r})\n"
         f"d = cas.get_data({name!r})\n"
         "assert d is not None and d.text\n"
@@ -135,7 +135,7 @@ async def test_cache_only_refuses_decode() -> None:
 
 
 async def test_peer_http_satisfies_without_kernel(tmp_path: Path) -> None:
-    from dart.gateway import create_app, create_peer_app
+    from dart.api.gateway import create_app, create_peer_app
 
     cas_dir = tmp_path / "cas"
     eng = SyntheticEngine(seed=4)
