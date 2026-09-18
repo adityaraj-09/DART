@@ -61,11 +61,15 @@ def build_runtime(
     **cfg: object,
 ) -> DartRuntime:
     engine = build_engine(kind, model, step_latency_s=step_latency_s)
+    extra = dict(cfg)
+    if isinstance(engine, HuggingFaceEngine):
+        extra.setdefault("interest_lifetime_s", 15.0)
+        extra.setdefault("t_decode_s", 0.08)
     config = RuntimeConfig(
         cas_dir=cas_dir or os.environ.get("DART_CAS_DIR"),
         secret=secret or os.environ.get("DART_SECRET") or "dart-dev-secret-change-me",
         producer_id=os.environ.get("DART_PRODUCER_ID") or "local-0",
-        **{k: v for k, v in cfg.items() if v is not None},  # type: ignore[arg-type]
+        **{k: v for k, v in extra.items() if v is not None},  # type: ignore[arg-type]
     )
     conn: KVConnector | None
     if isinstance(connector, str) or connector is None:

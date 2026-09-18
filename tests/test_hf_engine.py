@@ -21,6 +21,14 @@ def test_factory_hf_kind() -> None:
     assert eng.model_id == DEFAULT_HF_MODEL
 
 
+def test_hf_runtime_uses_long_interest_lifetime() -> None:
+    from dart.factory import build_runtime
+
+    rt = build_runtime("hf")
+    assert rt.config.interest_lifetime_s >= 15.0
+    assert isinstance(rt.engine, HuggingFaceEngine)
+
+
 async def test_hf_stub_credit_gate() -> None:
     launches = {"n": 0}
 

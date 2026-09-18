@@ -458,6 +458,7 @@ class DartRuntime:
         produced = 0
         kv_root = handle.kv_root
         seg = 0
+        expired = 0
         while produced < quota:
             cont = self.get(handle.cont_id)
             if cont.done or cont.closed or cont.state.stopped:
@@ -483,9 +484,15 @@ class DartRuntime:
             try:
                 data = await self.interest(req, lease=handle.lease)
             except InterestNack as exc:
-                if exc.reason in {NackReason.DONE.value, NackReason.EXPIRED.value}:
+                if exc.reason == NackReason.DONE.value:
                     break
+                if exc.reason == NackReason.EXPIRED.value:
+                    expired += 1
+                    if expired > 8:
+                        break
+                    continue
                 raise
+            expired = 0
             produced += data.token_count()
             kv_root = data.kv_root
             handle.kv_root = kv_root

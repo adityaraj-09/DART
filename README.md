@@ -17,8 +17,12 @@ It is a control plane, not a GPU fleet. vLLM and llama.cpp stay the kernels.
 ```
 
 <p align="center">
-  <img src="docs/assets/console.png" alt="DART console: credit-window stream with live kernel and KV metrics" width="920" />
+  <img src="docs/assets/console.png" alt="DART console streaming HuggingFaceTB/SmolLM2-135M-Instruct with live credit and KV metrics" width="920" />
 </p>
+
+<p align="center"><sub>Model used: <b>HuggingFaceTB/SmolLM2-135M-Instruct</b> (135M parameters, CPU, <code>--engine hf</code>).</sub></p>
+
+[Screen recording — SmolLM2 credit-window stream](docs/assets/smollm2_idd_console.mp4)
 
 ---
 
@@ -30,7 +34,7 @@ cd DART
 pip install -e ".[dev]"
 ```
 
-Python 3.11+. Optional extras: `[vllm]`, `[llamacpp]`.
+Python 3.11+. Optional extras: `[hf]` (SmolLM2 / transformers), `[vllm]`, `[llamacpp]`.
 
 ---
 
@@ -49,9 +53,7 @@ pip install -e ".[hf]"
 dart serve --engine hf --model HuggingFaceTB/SmolLM2-135M-Instruct --port 8090
 ```
 
-The console header shows `HuggingFaceTB/SmolLM2-135M-Instruct · HuggingFaceEngine`. That is the model used in the recording below.
-
-<video src="docs/assets/smollm2_idd_console.mp4" controls width="920"></video>
+The console header shows `HuggingFaceTB/SmolLM2-135M-Instruct · HuggingFaceEngine`. That is the model in the screenshot and [screen recording](docs/assets/smollm2_idd_console.mp4).
 
 ```bash
 curl -N http://127.0.0.1:8090/v1/chat/completions \
