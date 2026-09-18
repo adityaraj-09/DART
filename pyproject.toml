@@ -33,8 +33,8 @@ dev = [
 vllm = ["openai>=1.40"]
 llamacpp = ["httpx>=0.27"]
 
-[project.scripts]
-dart = "dart.cli:main"
+[project.entry-points."vllm.general_plugins"]
+dart_idd = "dart.engine.vllm_plugin:register"
 
 [project.urls]
 Documentation = "docs/architecture.md"

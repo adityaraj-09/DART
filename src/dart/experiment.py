@@ -268,12 +268,14 @@ async def paper_suite(
     with tempfile.TemporaryDirectory() as td:
         cas = await cas_peer_hit(cas_dir or td)
     mesh = await mesh_handover_suite()
+    waiting = await waiting_plugin_suite()
     return {
         "kill_test": kill,
         "andes_complete": andes,
         "grammar": gram,
         "cas_peer": cas,
         "mesh": mesh,
+        "waiting_plugin": waiting,
         "limitations": "docs/limitations.md",
     }
 
@@ -365,3 +367,79 @@ async def mesh_handover_suite() -> dict[str, Any]:
         }
     finally:
         await mesh.aclose()
+
+
+async def waiting_plugin_suite() -> dict[str, Any]:
+    """In-process waiting+pin vs HTTP admission re-entry. No GPU required."""
+    from httpx import ASGITransport, AsyncClient
+
+    from dart.engine.fake_http import FakeCounters, create_fake_vllm_app
+    from dart.engine.vllm import VLLMChatEngine
+    from dart.engine.vllm_inprocess import InProcessVLLMEngine
+    from dart.protocol import CipName, Interest
+
+    cfg = RuntimeConfig(poll_interval_s=0.001, decode_quota=32, segment_size=8, t_decode_s=0.005)
+    eng = InProcessVLLMEngine(seed=2)
+    rt = DartRuntime(eng, cfg)
+    await rt.start()
+    handle = await rt.open("waiting pin plugin", max_tokens=32)
+    await asyncio.sleep(0.03)
+    idle = eng.scheduler_snapshot()
+    rid = rt.get(handle.cont_id).state.engine_request_id
+    name0 = CipName.tokens(handle.model_hash, handle.kv_root, 0).render()
+    first = await rt.interest(
+        Interest(name=name0, window=8, lifetime_ms=2000, lease=handle.lease), lease=handle.lease
+    )
+    name1 = CipName.tokens(handle.model_hash, first.kv_root, 1).render()
+    await rt.interest(
+        Interest(name=name1, window=8, lifetime_ms=2000, lease=handle.lease), lease=handle.lease
+    )
+    after = eng.scheduler_snapshot()
+    dummy = "prefix-cache-victim"
+    eng.sched.admit(dummy, n_tokens=8, n_blocks=4, count_prefill=False)
+    eng.sched.blocks.unpin(dummy)
+    eng.apply_memory_pressure(100)
+    pinned_survived = eng.sched.blocks.has_blocks(rid)
+    victim_gone = not eng.sched.blocks.has_blocks(dummy)
+    await rt.aclose()
+
+    ctr = FakeCounters()
+    app = create_fake_vllm_app(seed=2, counters=ctr)
+    transport = ASGITransport(app=app)
+    http_calls = 0
+    async with AsyncClient(transport=transport, base_url="http://vllm") as client:
+        http_eng = VLLMChatEngine("fake-7b", base_url="http://vllm/v1", client=client)
+        http_rt = DartRuntime(http_eng, cfg)
+        await http_rt.start()
+        hh = await http_rt.open("http reentry", max_tokens=32)
+        n0 = CipName.tokens(hh.model_hash, hh.kv_root, 0).render()
+        d0 = await http_rt.interest(
+            Interest(name=n0, window=8, lifetime_ms=2000, lease=hh.lease), lease=hh.lease
+        )
+        n1 = CipName.tokens(hh.model_hash, d0.kv_root, 1).render()
+        await http_rt.interest(
+            Interest(name=n1, window=8, lifetime_ms=2000, lease=hh.lease), lease=hh.lease
+        )
+        http_calls = ctr.kernel_launches
+        await http_rt.aclose()
+
+    ok = (
+        idle["waiting"] >= 1
+        and idle["pinned_blocks"] > 0
+        and idle["decode_forwards"] == 0
+        and idle["admissions"] == 1
+        and after["admissions"] == 1
+        and after["admission_reentries"] == 0
+        and after["decode_forwards"] == 2
+        and pinned_survived
+        and victim_gone
+        and http_calls == 2
+    )
+    return {
+        "idle": idle,
+        "after_two_interests": after,
+        "pinned_survived_pressure": pinned_survived,
+        "prefix_cache_victim_evicted": victim_gone,
+        "http_generate_calls": http_calls,
+        "ok": ok,
+    }

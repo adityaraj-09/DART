@@ -4,9 +4,8 @@ Each Interest becomes one HTTP generate of at most W tokens. Zero Interests
 ⇒ zero HTTP calls ⇒ the vLLM process records zero additional forwards.
 
 Limitation (honest): this HTTP path re-enters admission and can drop KV if
-the prefix cache evicts. An in-process scheduler plugin that leaves the
-request in `waiting` with pinned blocks would tighten residency, not invent
-the credit-gate idea. See docs/limitations.md.
+the prefix cache evicts. Use ``InProcessVLLMEngine`` (``--engine vllm-inprocess``)
+to keep the request in ``waiting`` with pinned blocks. See docs/vllm-plugin.md.
 """
 
 from __future__ import annotations
@@ -171,7 +170,8 @@ class VLLMChatEngine:
         state.kv_extents = _opaque_extents(state, self.config)
         state.kv_root = root_from_extents(state.kv_extents)
         finish = choice.get("finish_reason") or ""
-        state.stopped = finish in {"stop", "length"}
+        # "length" means this Interest's max_tokens=W was hit, not EOS.
+        state.stopped = finish == "stop"
         for tid in new_ids:
             state.sampler = state.sampler.advance(tid)
         return DecodeResult(

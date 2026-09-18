@@ -10,10 +10,10 @@ DART’s claim is the inversion: **outstanding Interests are the only thing that
 
 **What is actually next** (engineering, not the idea):
 
-- In-process vLLM scheduler plugin: request stays in `waiting` with pinned KV when `W=0` (avoids HTTP admission re-entry and prefix-cache eviction). The control-plane pin (`PinnedKVPool`) and mesh router already exist for in-process engines; they do not pin vLLM’s GPU blocks over HTTP.
 - Optional real LMCache GPU pages / NIXL RDMA. The connectors are in-repo (`memory` / `file` / `lmcache` / `nixl`); without those libraries, transfer is memcpy and metrics say `rdma_available=false`.
+- Binding `DartCreditScheduler` into a live GPU vLLM process (`DART_VLLM_INPROCESS=1` plus the `vllm` package). The waiting-queue plugin itself is in-repo (`--engine vllm-inprocess`). See [`vllm-plugin.md`](./vllm-plugin.md).
 
-Named KV handover and multi-node Interest routing are implemented. See [`mesh.md`](./mesh.md). Do not promise a fleet you did not build, and do not hide the adapters you did.
+Named KV handover, multi-node Interest routing, and in-process waiting+pin are implemented. Do not promise a fleet you did not build, and do not hide the adapters you did.
 
 ## HTTP path re-enters admission
 
@@ -25,7 +25,7 @@ Consequences:
 - Async abort/restart races that in-process `pause_generation(mode="keep")` was built to avoid still exist on this path.
 - TTFT of Interest 0 includes remote prefill; later Interests rely on **prefix caching**, not a pinned decode request.
 
-An in-process vLLM scheduler plugin that leaves the request in `waiting` when `W=0` would **tighten KV residency and admission**. It would not invent credit-gated decode. The scientific claim does not depend on that plugin.
+An in-process vLLM scheduler plugin that leaves the request in `waiting` when `W=0` is implemented as `--engine vllm-inprocess` (`CreditGatedScheduler`). It tightens KV residency and admission. It does not invent credit-gated decode. The HTTP path above is unchanged. See [`vllm-plugin.md`](./vllm-plugin.md).
 
 ## Prefix cache can drop KV
 

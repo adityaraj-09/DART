@@ -142,7 +142,7 @@ See [congestion-control.md](./congestion-control.md). Mapping:
 
 `dart mesh --nodes 3` is the local form. [`mesh.md`](./mesh.md).
 
-**vLLM long-term:** a scheduler plugin that keeps the request in `waiting` with pinned blocks when `W=0`. The HTTP adapter here uses prefix-cached `max_tokens=W` so we do not fork vLLM to ship. The *invariant* is the same: no generate() without credit.
+**vLLM in-process plugin:** `--engine vllm-inprocess` admits once, then parks the request in `waiting` with pinned blocks when `W=0`. HTTP `--engine vllm` is unchanged. [`vllm-plugin.md`](./vllm-plugin.md).
 
 ---
 
@@ -192,7 +192,9 @@ Pacers (`src/dart/consumers.py`):
 | `dart.mesh` | InterestRouter: CAS → pin holder → cheapest+handover |
 | `dart.merkle` | `kv_root` identity |
 | `dart.runtime` | scheduler + continuation table |
-| `dart.engine.*` | Synthetic / vLLM / llama.cpp |
+| `dart.engine.*` | Synthetic / HTTP vLLM / llama.cpp |
+| `dart.engine.vllm_sched` | Waiting-queue plugin: pin blocks, no re-admit |
+| `dart.engine.vllm_inprocess` | In-process producer using that scheduler |
 | `dart.gateway` | FastAPI |
 | `dart.sdk` | product client |
 | `dart.experiment` | push vs credit kill-test, mesh handover |

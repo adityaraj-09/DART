@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 
+from dart.engine.cache_only import CacheOnlyEngine
 from dart.engine.llamacpp import LlamaCppEngine
 from dart.engine.synthetic import SyntheticEngine
 from dart.engine.vllm import VLLMChatEngine
-from dart.engine.cache_only import CacheOnlyEngine
+from dart.engine.vllm_inprocess import InProcessVLLMEngine
 from dart.kvconn import KVConnector, build_connector
 from dart.pin import PinnedKVPool
 from dart.runtime import DartRuntime
@@ -19,18 +20,22 @@ def build_engine(
     model: str | None = None,
     *,
     step_latency_s: float = 0.0,
-) -> SyntheticEngine | VLLMChatEngine | LlamaCppEngine | CacheOnlyEngine:
+) -> SyntheticEngine | VLLMChatEngine | LlamaCppEngine | CacheOnlyEngine | InProcessVLLMEngine:
     kind = (kind or os.environ.get("DART_ENGINE") or "synthetic").lower()
     model = model or os.environ.get("DART_MODEL") or "dart-synth-8b"
     if kind in {"synthetic", "synth", "local"}:
         return SyntheticEngine(model, step_latency_s=step_latency_s)
+    if kind in {"vllm-inprocess", "vllm_inprocess", "vllm-waiting", "waiting"}:
+        return InProcessVLLMEngine(model, step_latency_s=step_latency_s)
     if kind == "vllm":
         return VLLMChatEngine(model)
     if kind in {"llamacpp", "llama.cpp", "llama"}:
         return LlamaCppEngine(model)
     if kind in {"cache", "cas", "peer"}:
         return CacheOnlyEngine(model)
-    raise ValueError(f"unknown engine {kind!r}; use synthetic | vllm | llamacpp | cache")
+    raise ValueError(
+        f"unknown engine {kind!r}; use synthetic | vllm | vllm-inprocess | llamacpp | cache"
+    )
 
 
 def build_runtime(

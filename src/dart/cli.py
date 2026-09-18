@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     exp.add_argument(
         "--suite",
         default="kill",
-        choices=["kill", "andes", "grammar", "cas", "paper", "mesh"],
+        choices=["kill", "andes", "grammar", "cas", "paper", "mesh", "waiting"],
     )
     exp.add_argument("--cas-dir", default=None)
 
@@ -117,6 +117,7 @@ def _experiment(args: argparse.Namespace) -> int:
         grammar_ablation,
         mesh_handover_suite,
         paper_suite,
+        waiting_plugin_suite,
     )
 
     if args.suite == "kill":
@@ -161,6 +162,11 @@ def _experiment(args: argparse.Namespace) -> int:
         json.dump(report, sys.stdout, indent=2, default=str)
         sys.stdout.write("\n")
         return 0 if report["ok"] else 1
+    if args.suite == "waiting":
+        report = asyncio.run(waiting_plugin_suite())
+        json.dump(report, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+        return 0 if report["ok"] else 1
     report = asyncio.run(
         paper_suite(duration_s=args.seconds, max_tokens=args.max_tokens, cas_dir=args.cas_dir)
     )
@@ -172,6 +178,7 @@ def _experiment(args: argparse.Namespace) -> int:
         and report["grammar"]["one_data_object"]
         and report["cas_peer"]["match"]
         and report["mesh"]["ok"]
+        and report["waiting_plugin"]["ok"]
     )
     return 0 if ok else 1
 

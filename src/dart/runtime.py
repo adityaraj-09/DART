@@ -323,6 +323,7 @@ class DartRuntime:
                 cont.metrics.handovers += 1
                 self.kv.sleep(cont_id)
                 self.pin_pool.sleep(cont.state.kv_root)
+            await self._engine_abort(cont)
             return cont.state.model_copy(deep=True)
 
     def get(self, cont_id: str) -> Continuation:
@@ -442,6 +443,7 @@ class DartRuntime:
             cont.cc.credits = 0
             self.kv.sleep(cont_id)
             self._fail_pending(cont, NackReason.EXPIRED, "closed")
+        await self._engine_abort(cont)
         self._wakeup.set()
 
     async def consume(
@@ -548,6 +550,11 @@ class DartRuntime:
             "pins": self.pin_pool.metrics(),
             "connector": self.connector.metrics() if self.connector is not None else None,
             "engine_prefills": getattr(self.engine, "prefills", None),
+            "scheduler": (
+                self.engine.scheduler_snapshot()
+                if hasattr(self.engine, "scheduler_snapshot")
+                else None
+            ),
         }
 
     async def engine_probe(self) -> dict[str, Any]:
@@ -558,7 +565,13 @@ class DartRuntime:
         match = None
         if isinstance(remote, dict) and "kernel_launches" in remote:
             match = int(remote["kernel_launches"]) == int(local["engine_kernel_launches"])
-        return {"local": local, "remote": remote, "match": match}
+        sched = getattr(self.engine, "scheduler_snapshot", None)
+        return {
+            "local": local,
+            "remote": remote,
+            "match": match,
+            "scheduler": sched() if callable(sched) else None,
+        }
 
     def prometheus(self) -> str:
         s = self.metrics_snapshot()
@@ -630,6 +643,7 @@ class DartRuntime:
                     _discard_draft(cont)
             if cont.cc.credits > 0 or cont.grammar_span or cont.pending:
                 if cont.sleeping:
+                    await self._engine_resume(cont)
                     self.kv.wake(cont.id)
                     self.pin_pool.wake(cont.state.kv_root)
                     cont.sleeping = False
@@ -642,9 +656,17 @@ class DartRuntime:
                     cont.last_skip_at = now
                 if not cont.sleeping:
                     cont.sleeping = True
-                    self.kv.sleep(cont.id)
-                    self.pin_pool.sleep(cont.state.kv_root)
-                    self.kv.pin(cont.id, time.time() + cont.lease.remaining_ttl())
+                    try:
+                        kept = await self._engine_pause_keep(cont)
+                    except Exception:
+                        logger.exception("engine pause(keep) failed for %s", cont.id[:8])
+                        kept = False
+                    if kept:
+                        self.kv.pin(cont.id, time.time() + cont.lease.remaining_ttl())
+                    else:
+                        self.kv.sleep(cont.id)
+                        self.pin_pool.sleep(cont.state.kv_root)
+                        self.kv.pin(cont.id, time.time() + cont.lease.remaining_ttl())
         if not ready:
             return
         batch = ready[: self.config.max_num_seqs]
@@ -764,6 +786,7 @@ class DartRuntime:
         self.kv.sleep(cont.id)
         self.pin_pool.sleep(cont.state.kv_root)
         self._fail_pending(cont, NackReason.DONE, "stopped")
+        await self._engine_abort(cont)
 
     def _fail_pending(self, cont: Continuation, reason: NackReason, detail: str) -> None:
         for name, fut in list(cont.pending.items()):
@@ -808,6 +831,38 @@ class DartRuntime:
             await self.connector.put(blob)
         except Exception:
             logger.exception("kv connector put failed for %s", cont.id[:8])
+
+    async def _engine_pause_keep(self, cont: Continuation) -> bool:
+        fn = getattr(self.engine, "pause_generation", None)
+        if not callable(fn):
+            return False
+        await fn(cont.state, mode="keep")
+        self.kv.replace(cont.id, cont.state.kv_extents)
+        self.pin_pool.pin(
+            cont.state.kv_root,
+            cont.state,
+            holder_id=self.config.producer_id,
+            until=time.time() + max(cont.lease.remaining_ttl(), 1.0),
+            cont_id=cont.id,
+            model_hash=cont.model_hash,
+            lease=cont.signed,
+            segment_index=cont.segment_index,
+            output_text=cont.output_text,
+            prompt_text=cont.prompt_text,
+            max_tokens=cont.max_tokens,
+            on_gpu=True,
+        )
+        return True
+
+    async def _engine_resume(self, cont: Continuation) -> None:
+        fn = getattr(self.engine, "resume_generation", None)
+        if callable(fn):
+            await fn(cont.state)
+
+    async def _engine_abort(self, cont: Continuation) -> None:
+        fn = getattr(self.engine, "abort_generation", None)
+        if callable(fn):
+            await fn(cont.state)
 
 
 def _as_prompt(prompt: Prompt | str | list[ChatMessage] | list[dict[str, str]]) -> Prompt:

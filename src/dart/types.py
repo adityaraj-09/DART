@@ -120,6 +120,7 @@ class EngineState(BaseModel):
     stopped: bool = False
     prefix_text: str = ""
     assistant_text: str = ""
+    engine_request_id: str = ""
 
     @property
     def all_ids(self) -> list[int]:

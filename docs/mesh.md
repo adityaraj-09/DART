@@ -65,6 +65,6 @@ Per-`kv_root` asyncio lock: two concurrent Interests cannot split-brain adopt.
 
 ## What this is not
 
-This is **not** a vLLM fleet scheduler plugin. HTTP vLLM/llama.cpp adapters still re-enter admission; their prefix cache may evict. The pin pool still names the continuation. SyntheticEngine (and any in-process `Engine` that decodes from `EngineState`) actually skips prefill on adopt.
+This is **not** a GPU fleet. HTTP vLLM/llama.cpp adapters still re-enter admission; their prefix cache may evict. `--engine vllm-inprocess` keeps the request in `waiting` with pinned blocks. The pin pool still names the continuation across nodes.
 
 Real NIXL RDMA / LMCache GPU pages are optional libraries. Tests use memcpy. Metrics (`rdma_available`, `lmcache_available`) say so.

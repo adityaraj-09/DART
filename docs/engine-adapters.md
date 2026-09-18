@@ -33,16 +33,19 @@ Limits of the HTTP path (honest):
 
 - Token ids and real KV bytes are not returned; extents are opaque handles sized like the config.  
 - Cross-machine handover uses `KVConnector` (`--connector nixl` / `lmcache`). The HTTP adapter still does not export real GPU pages; SyntheticEngine (and in-process engines that decode from `EngineState`) adopt without re-prefill. See [`mesh.md`](./mesh.md).  
-- Per-request `waiting` with pinned blocks is a **vLLM scheduler plugin** we did not fork into existence. The invariant (no generate without credit) still holds because DART never calls the API when `W=0`.  
+- Per-request `waiting` with pinned blocks: `--engine vllm-inprocess` (`CreditGatedScheduler`). The HTTP adapter above still re-enters admission. See [`vllm-plugin.md`](./vllm-plugin.md).  
 - The HTTP path **re-enters admission** and **prefix cache may evict** (implicit re-prefill). See [`limitations.md`](./limitations.md). `GET /v1/engine` compares DART’s local POST count with the engine process `/metrics` forward counter.
 
-In-process `vllm.AsyncLLM` can replace HTTP later without changing CIP.
+In-process `vllm.AsyncLLM` is optional behind `DART_VLLM_INPROCESS=1` when the `vllm` package is installed. CIP does not change.
 
 ```bash
 export DART_ENGINE=vllm
 export DART_MODEL=meta-llama/Llama-3.1-8B-Instruct
 export DART_VLLM_URL=http://127.0.0.1:8000/v1
 dart serve --engine vllm --model "$DART_MODEL"
+
+# waiting + pinned blocks (no HTTP re-entry)
+dart serve --engine vllm-inprocess
 ```
 
 ## LlamaCppEngine (bench / edge)

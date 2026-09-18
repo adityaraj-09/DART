@@ -13,9 +13,9 @@ A consumer (terminal, compositor, TTS, JSON parser, tool runtime) pulls what it 
 
 This is not Andes (push then pace), not MOQT (delivery of already-generated tokens), not LMCache (store). It closes the loop: **Interest authorizes decode**.
 
-DART does **not** replace vLLM as a GPU fleet. A live vLLM or llama.cpp process already sits behind the same CIP (`--engine vllm` / `--engine llamacpp`). In-process pinned KV, NIXL/LMCache-shaped handover, and multi-node Interest routing are in this repo (`dart mesh`, [`docs/mesh.md`](docs/mesh.md)).
+DART does **not** replace vLLM as a GPU fleet. A live vLLM or llama.cpp process already sits behind the same CIP (`--engine vllm` / `--engine llamacpp`). In-process waiting+pinned blocks: `--engine vllm-inprocess` ([`docs/vllm-plugin.md`](docs/vllm-plugin.md)). Mesh: `dart mesh` ([`docs/mesh.md`](docs/mesh.md)).
 
-Architecture: [`docs/architecture.md`](docs/architecture.md) · Protocol: [`docs/protocol.md`](docs/protocol.md) · CC: [`docs/congestion-control.md`](docs/congestion-control.md) · Engines: [`docs/engine-adapters.md`](docs/engine-adapters.md) · Mesh: [`docs/mesh.md`](docs/mesh.md)
+Architecture: [`docs/architecture.md`](docs/architecture.md) · Protocol: [`docs/protocol.md`](docs/protocol.md) · CC: [`docs/congestion-control.md`](docs/congestion-control.md) · Engines: [`docs/engine-adapters.md`](docs/engine-adapters.md) · Mesh: [`docs/mesh.md`](docs/mesh.md) · Waiting plugin: [`docs/vllm-plugin.md`](docs/vllm-plugin.md)
 
 ## Install
 
@@ -77,6 +77,7 @@ Disconnect stops the kernel. `X-Dart-Pace` is the receive window.
 pytest -q
 dart experiment --suite paper --seconds 1 --max-tokens 96
 dart experiment --suite mesh
+dart experiment --suite waiting
 ```
 
 Limitations (HTTP admission, prefix-cache eviction): [`docs/limitations.md`](docs/limitations.md).
