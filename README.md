@@ -73,4 +73,7 @@ Disconnect stops the kernel. `X-Dart-Pace` is the receive window.
 
 ```bash
 pytest -q
+dart experiment --suite paper --seconds 1 --max-tokens 96
 ```
+
+Limitations (HTTP admission, prefix-cache eviction): [`docs/limitations.md`](docs/limitations.md).

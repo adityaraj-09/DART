@@ -7,6 +7,7 @@ import os
 from dart.engine.llamacpp import LlamaCppEngine
 from dart.engine.synthetic import SyntheticEngine
 from dart.engine.vllm import VLLMChatEngine
+from dart.engine.cache_only import CacheOnlyEngine
 from dart.runtime import DartRuntime
 from dart.types import ModelConfig, RuntimeConfig
 
@@ -16,7 +17,7 @@ def build_engine(
     model: str | None = None,
     *,
     step_latency_s: float = 0.0,
-) -> SyntheticEngine | VLLMChatEngine | LlamaCppEngine:
+) -> SyntheticEngine | VLLMChatEngine | LlamaCppEngine | CacheOnlyEngine:
     kind = (kind or os.environ.get("DART_ENGINE") or "synthetic").lower()
     model = model or os.environ.get("DART_MODEL") or "dart-synth-8b"
     if kind in {"synthetic", "synth", "local"}:
@@ -25,7 +26,9 @@ def build_engine(
         return VLLMChatEngine(model)
     if kind in {"llamacpp", "llama.cpp", "llama"}:
         return LlamaCppEngine(model)
-    raise ValueError(f"unknown engine {kind!r}; use synthetic | vllm | llamacpp")
+    if kind in {"cache", "cas", "peer"}:
+        return CacheOnlyEngine(model)
+    raise ValueError(f"unknown engine {kind!r}; use synthetic | vllm | llamacpp | cache")
 
 
 def build_runtime(

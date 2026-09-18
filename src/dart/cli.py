@@ -1,4 +1,4 @@
-"""CLI: `dart serve` and `dart experiment`."""
+"""CLI: serve, peer, experiment."""
 
 from __future__ import annotations
 
@@ -24,15 +24,28 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--cas-dir", default=os.environ.get("DART_CAS_DIR"))
     serve.add_argument("--reload", action="store_true")
 
-    exp = sub.add_parser("experiment", help="Push vs credit-gated kill-test")
+    peer = sub.add_parser("peer", help="CAS-only peer: satisfy Interests with no GPU")
+    peer.add_argument("--cas-dir", required=True)
+    peer.add_argument("--host", default="0.0.0.0")
+    peer.add_argument("--port", type=int, default=8091)
+
+    exp = sub.add_parser("experiment", help="Kill-test / Andes / grammar / CAS / paper suite")
     exp.add_argument("--seconds", type=float, default=2.0)
     exp.add_argument("--max-tokens", type=int, default=256)
     exp.add_argument("--step-latency", type=float, default=0.0)
     exp.add_argument("--json", action="store_true", dest="as_json")
+    exp.add_argument(
+        "--suite",
+        default="kill",
+        choices=["kill", "andes", "grammar", "cas", "paper"],
+    )
+    exp.add_argument("--cas-dir", default=None)
 
     args = parser.parse_args(argv)
     if args.cmd == "serve":
         return _serve(args)
+    if args.cmd == "peer":
+        return _peer(args)
     if args.cmd == "experiment":
         return _experiment(args)
     parser.error("unknown command")
@@ -51,20 +64,71 @@ def _serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _experiment(args: argparse.Namespace) -> int:
-    from dart.experiment import compare
+def _peer(args: argparse.Namespace) -> int:
+    import uvicorn
 
-    report = asyncio.run(
-        compare(
-            duration_s=args.seconds,
-            max_tokens=args.max_tokens,
-            step_latency_s=args.step_latency,
+    from dart.gateway import create_peer_app
+
+    app = create_peer_app(args.cas_dir)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
+def _experiment(args: argparse.Namespace) -> int:
+    from dart.experiment import andes_complete, cas_peer_hit, compare, grammar_ablation, paper_suite
+
+    if args.suite == "kill":
+        report = asyncio.run(
+            compare(
+                duration_s=args.seconds,
+                max_tokens=args.max_tokens,
+                step_latency_s=args.step_latency,
+            )
         )
-    )
-    if args.as_json:
+        if args.as_json:
+            json.dump(report, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+            return 0
+        return _print_kill(report)
+    if args.suite == "andes":
+        report = asyncio.run(
+            andes_complete(
+                duration_s=args.seconds,
+                max_tokens=args.max_tokens,
+                step_latency_s=args.step_latency,
+            )
+        )
+        json.dump(report, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+        return 0 if report["idd_beats_andes_on_inventory"] else 1
+    if args.suite == "grammar":
+        report = asyncio.run(grammar_ablation())
         json.dump(report, sys.stdout, indent=2)
         sys.stdout.write("\n")
-        return 0
+        return 0 if report["one_data_object"] and report["masking_more_launches"] else 1
+    if args.suite == "cas":
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            report = asyncio.run(cas_peer_hit(args.cas_dir or td))
+        json.dump(report, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0 if report["match"] else 1
+    report = asyncio.run(
+        paper_suite(duration_s=args.seconds, max_tokens=args.max_tokens, cas_dir=args.cas_dir)
+    )
+    json.dump(report, sys.stdout, indent=2, default=str)
+    sys.stdout.write("\n")
+    ok = (
+        report["kill_test"]["kill_test"]["survive"]
+        and report["andes_complete"]["idd_beats_andes_on_inventory"]
+        and report["grammar"]["one_data_object"]
+        and report["cas_peer"]["match"]
+    )
+    return 0 if ok else 1
+
+
+def _print_kill(report: dict) -> int:
     kt = report["kill_test"]
     print("DART kill-test (push vs credit-gated decode)")
     print("-" * 56)
@@ -75,12 +139,13 @@ def _experiment(args: argparse.Namespace) -> int:
             f"consumed={row['tokens_consumed']:4} "
             f"unused={row['tokens_generated_unconsumed']:4} "
             f"kernels={row['decode_kernel_launches']:4} "
-            f"skipped={row['decode_steps_skipped']:4} "
+            f"engine={row['engine_kernel_launches']:4} "
             f"kv_hw={row['kv_high_water']}"
         )
     print("-" * 56)
     print(f"generated cut vs push:     {kt['generated_cut_vs_push']}")
     print(f"KV high-water cut vs push: {kt['kv_high_water_cut_vs_push']}")
+    print(f"engine kernel cut vs push: {kt.get('engine_kernel_cut_vs_push')}")
     print(f"survive inversion:         {kt['survive']}")
     return 0 if kt["survive"] else 1
 

@@ -97,6 +97,27 @@ def create_app(runtime: DartRuntime) -> FastAPI:
     async def metrics_json() -> dict[str, Any]:
         return runtime.metrics_snapshot()
 
+    @app.get("/v1/engine")
+    async def engine_probe() -> dict[str, Any]:
+        return await runtime.engine_probe()
+
+    @app.get("/v1/cas")
+    async def cas_get(name: str) -> dict[str, Any]:
+        data = runtime.get_named(name)
+        if data is None:
+            raise HTTPException(404, f"CAS miss: {name}")
+        return json.loads(data.model_dump_json())
+
+    @app.post("/v1/peer/interest")
+    async def peer_interest(body: InterestBody) -> dict[str, Any]:
+        if not body.name:
+            raise HTTPException(400, "name required")
+        try:
+            data = await runtime.satisfy_named(body.name)
+        except InterestNack as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return json.loads(data.model_dump_json())
+
     @app.post("/v1/continuations")
     async def open_cont(body: OpenRequest) -> dict[str, Any]:
         prompt: Prompt | list[ChatMessage] | str
@@ -327,3 +348,14 @@ def _usage(runtime: DartRuntime, handle: ContinuationHandle) -> dict[str, int]:
         "completion_tokens": cont.metrics.tokens_generated,
         "total_tokens": cont.metrics.prefill_tokens + cont.metrics.tokens_generated,
     }
+
+
+def create_peer_app(cas_dir: str):
+    """Second process: FileCAS only. No decode kernel."""
+    from dart.engine.cache_only import CacheOnlyEngine
+    from dart.store import FileCAS
+    from dart.types import RuntimeConfig
+
+    cas = FileCAS(cas_dir)
+    runtime = DartRuntime(CacheOnlyEngine(), RuntimeConfig(cas_dir=cas_dir), cas=cas)
+    return create_app(runtime)

@@ -118,6 +118,8 @@ class EngineState(BaseModel):
     kv_root: str = "0" * 64
     pos: int = 0
     stopped: bool = False
+    prefix_text: str = ""
+    assistant_text: str = ""
 
     @property
     def all_ids(self) -> list[int]:
@@ -138,6 +140,13 @@ class ContinuationMetrics(BaseModel):
     prefill_tokens: int = 0
     grammar_spans: int = 0
     joules: float = 0.0
+    engine_kernel_launches: int = 0
+    engine_tokens_predicted: int = 0
+    admission_reentries: int = 0
+    prefix_cache_misses: int = 0
+    pacer_inventory_hw: int = 0
+    grammar_masked_launches: int = 0
+    grammar_jump_launches: int = 0
 
     def snapshot(self) -> dict[str, Any]:
         unused = max(0, self.tokens_generated - self.tokens_consumed)

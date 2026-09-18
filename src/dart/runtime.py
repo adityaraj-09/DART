@@ -15,6 +15,7 @@ from typing import Any, AsyncIterator
 
 from dart.cc import CongestionController
 from dart.engine.base import Engine
+from dart.engine.stats import stats_of
 from dart.errors import AmplificationError, InterestNack, LeaseError
 from dart.lease import ContinuationLease, sign_lease, verify_lease
 from dart.protocol import CipName, Data, Interest, Nack, TokenSegment
@@ -279,6 +280,19 @@ class DartRuntime:
             raise InterestNack(result.reason.value, result.detail)
         return result
 
+    def get_named(self, name: str) -> Data | None:
+        """Peer satisfy: named Data from CAS, no lease, no GPU."""
+        data = self.cas.get_data(name)
+        if data is None:
+            return None
+        return data.model_copy(update={"cache_hit": True, "producer_id": data.producer_id or "cas-peer"})
+
+    async def satisfy_named(self, name: str) -> Data:
+        data = self.get_named(name)
+        if data is None:
+            raise InterestNack(NackReason.UNKNOWN_NAME.value, name)
+        return data
+
     async def ack(self, cont_id: str, consumed: int, lease: str | None = None) -> None:
         if lease:
             verify_lease(lease, self.config.secret)
@@ -379,6 +393,11 @@ class DartRuntime:
                     "metrics": m.snapshot(),
                 }
             )
+        st = stats_of(self.engine)
+        totals.engine_kernel_launches = st.kernel_launches
+        totals.engine_tokens_predicted = st.tokens_predicted
+        totals.admission_reentries = st.admission_reentries
+        totals.prefix_cache_misses = st.prefix_cache_misses
         return {
             "uptime_s": time.monotonic() - self.started_at,
             "continuations": len(self._conts),
@@ -388,9 +407,20 @@ class DartRuntime:
             "kv_bytes": self.kv.current_bytes,
             "kv_gpu_bytes": self.kv.gpu_bytes(),
             "kv_high_water": self.kv.high_water,
+            "engine": stats_of(self.engine).snapshot(),
             "totals": totals.snapshot(),
             "items": conts,
         }
+
+    async def engine_probe(self) -> dict[str, Any]:
+        """Compare DART-local engine stats with the remote process counters."""
+        local = stats_of(self.engine).snapshot()
+        scrape = getattr(self.engine, "scrape_engine_metrics", None)
+        remote = await scrape() if scrape is not None else None
+        match = None
+        if isinstance(remote, dict) and "kernel_launches" in remote:
+            match = int(remote["kernel_launches"]) == int(local["engine_kernel_launches"])
+        return {"local": local, "remote": remote, "match": match}
 
     def prometheus(self) -> str:
         s = self.metrics_snapshot()
@@ -417,6 +447,9 @@ class DartRuntime:
             "# HELP dart_cache_hits Peer/CAS Interest satisfies.",
             "# TYPE dart_cache_hits counter",
             f"dart_cache_hits {t['cache_hits']}",
+            "# HELP dart_engine_kernel_launches Forwards reported by the producer process.",
+            "# TYPE dart_engine_kernel_launches counter",
+            f"dart_engine_kernel_launches {t.get('engine_kernel_launches', 0)}",
             "# HELP dart_continuations Live continuation objects.",
             "# TYPE dart_continuations gauge",
             f"dart_continuations {s['continuations']}",
@@ -488,7 +521,13 @@ class DartRuntime:
                 cont.metrics.tokens_drafted += extra
             want = n
 
-        result = await self.engine.decode(cont.state, want, grammar_span=grammar)
+        try:
+            result = await self.engine.decode(cont.state, want, grammar_span=grammar)
+        except Exception:
+            logger.exception("engine decode failed for %s", cont.id[:8])
+            async with cont.lock:
+                self._fail_pending(cont, NackReason.NO_MODEL, "engine decode failed")
+            return
 
         async with cont.lock:
             if cont.closed:
@@ -563,6 +602,11 @@ class DartRuntime:
                 pass
             if data.stopped:
                 cont.state.stopped = True
+            st = stats_of(self.engine)
+            cont.metrics.engine_kernel_launches = st.kernel_launches
+            cont.metrics.engine_tokens_predicted = st.tokens_predicted
+            cont.metrics.admission_reentries = st.admission_reentries
+            cont.metrics.prefix_cache_misses = st.prefix_cache_misses
 
     async def _finish(self, cont: Continuation) -> None:
         cont.done = True

@@ -79,10 +79,40 @@ class FileCAS(MemoryCAS):
             except (OSError, json.JSONDecodeError, ValueError):
                 continue
 
-    def put_data(self, name: str, data: Data) -> None:
-        super().put_data(name, data)
+    def get_data(self, name: str) -> Data | None:
+        with self._lock:
+            item = self._data.get(name)
+            if item is not None:
+                self.hits += 1
+                return item
         path = self._path(name)
-        path.write_text(data.model_dump_json())
+        if path.exists():
+            try:
+                data = Data.model_validate_json(path.read_text())
+            except (OSError, ValueError):
+                data = None
+            if data is not None:
+                with self._lock:
+                    self._data[name] = data
+                    self.hits += 1
+                return data
+        with self._lock:
+            self.misses += 1
+        return None
+
+    def put_data(self, name: str, data: Data) -> None:
+        with self._lock:
+            self._data[name] = data
+            self.puts += 1
+        path = self._path(name)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(data.model_dump_json())
+        tmp.replace(path)
+
+    def has(self, name: str) -> bool:
+        if super().has(name):
+            return True
+        return self._path(name).exists()
 
 
 class KVRecord:

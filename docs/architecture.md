@@ -6,7 +6,9 @@
 
 A live generation is not an HTTP request. It is an address space of objects. Consumers (compositor, TTS, JSON parser, tool runtime, another model) issue Interests for the next objects they can absorb. Producers decode only to satisfy those Interests. Any peer that already holds the named object can answer. Changing machines is not live-migration of a request; it is a different producer answering the next Interest.
 
-This document is the system that is implemented in this repository.
+This document is the system that is implemented in this repository. Paper-facing eval and the HTTP/vLLM honesty clause: [`limitations.md`](./limitations.md).
+
+**Paper suites:** `dart experiment --suite paper` (kill-test, Andes-complete, grammar jump vs mask, CAS peer).
 
 ---
 

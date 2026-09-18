@@ -11,6 +11,7 @@ import hashlib
 import struct
 
 from dart.engine.base import DecodeResult, PrefillResult
+from dart.engine.stats import KernelStats
 from dart.merkle import bytes_per_extent, extent_digest, root_from_extents
 from dart.types import EngineState, KVExtent, ModelConfig, Prompt, SamplerState
 
@@ -100,6 +101,7 @@ class SyntheticEngine:
         self.config = config or ModelConfig(model_id=model_id)
         self.script = script
         self._script_i = 0
+        self.stats = KernelStats()
         self.kernel_launches = 0
         self.decode_tokens = 0
         self.supports_rollback = True
@@ -153,6 +155,7 @@ class SyntheticEngine:
         if self.step_latency_s > 0:
             await asyncio.sleep(self.step_latency_s * max(n, 1))
         self.kernel_launches += 1
+        self.stats.kernel_launches = self.kernel_launches
         if grammar_span:
             text = _JSON_SPANS.get(grammar_span, f'{{"span":"{grammar_span}"}}')
             ids = _tokenize(text)
@@ -162,6 +165,7 @@ class SyntheticEngine:
             state.kv_root = root_from_extents(state.kv_extents)
             state.sampler = state.sampler.advance(ids[-1] if ids else 0)
             self.decode_tokens += len(ids)
+            self.stats.tokens_predicted = self.decode_tokens
             return DecodeResult(
                 token_ids=ids,
                 text=text,
@@ -194,6 +198,7 @@ class SyntheticEngine:
         state.kv_extents = self._extents(state.all_ids, state.pos)
         state.kv_root = root_from_extents(state.kv_extents)
         self.decode_tokens += len(ids)
+        self.stats.tokens_predicted = self.decode_tokens
         return DecodeResult(
             token_ids=ids,
             text=text,
