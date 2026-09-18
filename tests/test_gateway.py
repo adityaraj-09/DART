@@ -26,9 +26,11 @@ async def client() -> AsyncClient:
 async def test_health_and_index(client: AsyncClient) -> None:
     h = await client.get("/health")
     assert h.status_code == 200 and h.json()["ok"] is True
+    assert "engine" in h.json()
     page = await client.get("/")
     assert page.status_code == 200
     assert "Interest-Driven Decode" in page.text
+    assert "model-label" in page.text
 
 
 async def test_openai_nonstream(client: AsyncClient) -> None:

@@ -95,7 +95,12 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
-        return {"ok": True, "engine": runtime.engine.model_id, "continuations": len(runtime._conts)}
+        return {
+            "ok": True,
+            "engine": runtime.engine.model_id,
+            "engine_class": type(runtime.engine).__name__,
+            "continuations": len(runtime._conts),
+        }
 
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> str:

@@ -48,6 +48,17 @@ dart serve --engine vllm --model "$DART_MODEL"
 dart serve --engine vllm-inprocess
 ```
 
+## HuggingFaceEngine (small real model)
+
+In-process `transformers` causal LM. Each Interest is `max_new_tokens=W`. Default demo weights: **HuggingFaceTB/SmolLM2-135M-Instruct** (135M, CPU).
+
+```bash
+pip install -e ".[hf]"
+dart serve --engine hf --model HuggingFaceTB/SmolLM2-135M-Instruct --port 8090
+```
+
+The console header shows the live `model_id`. This is a real decoder, not the synthetic word list.
+
 ## LlamaCppEngine (bench / edge)
 
 `POST /completion` with `n_predict=W` and `cache_prompt=true`. Matches the “afternoon kill-test on llama.cpp” slice, but already wired through CIP so you do not throw the loop away.

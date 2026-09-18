@@ -28,6 +28,10 @@
     header h1 { font-size: 1.1rem; margin: 0; letter-spacing: 0.04em; }
     header h1 span { color: var(--accent); }
     header p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+    header .model {
+      font-family: var(--mono); font-size: 0.78rem; color: var(--accent);
+      margin-top: 0.25rem;
+    }
     main { display: grid; grid-template-columns: 1fr 320px; min-height: calc(100vh - 64px); }
     @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
     section { padding: 1.25rem 1.5rem; }
@@ -59,13 +63,16 @@
 </head>
 <body>
   <header>
-    <h1>DART <span>Interest-Driven Decode</span></h1>
+    <div>
+      <h1>DART <span>Interest-Driven Decode</span></h1>
+      <div class="model" id="model-label">Loading engine…</div>
+    </div>
     <p>Decode runs only when the compositor has credit.</p>
   </header>
   <main>
     <section>
       <label for="prompt">Prompt</label>
-      <textarea id="prompt">Explain named continuation runtimes as if the GPU were a DASH encoder.</textarea>
+      <textarea id="prompt">In two short sentences, explain why the sky looks blue.</textarea>
       <div class="row">
         <div>
           <label for="pace">Consumer pace (tok/s)</label>
@@ -94,7 +101,17 @@
     const out = document.getElementById("out");
     const go = document.getElementById("go");
     const metrics = document.getElementById("metrics");
+    const modelLabel = document.getElementById("model-label");
     let abort = null;
+    let dartModel = "dart-synth-8b";
+
+    async function refreshHealth() {
+      const r = await fetch("/health");
+      const j = await r.json();
+      dartModel = j.engine || dartModel;
+      const klass = j.engine_class ? ` · ${j.engine_class}` : "";
+      modelLabel.textContent = dartModel + klass;
+    }
 
     async function refreshMetrics() {
       const r = await fetch("/v1/metrics");
@@ -121,7 +138,7 @@
       out.textContent = "";
       const pace = document.getElementById("pace").value;
       const body = {
-        model: "dart-synth-8b",
+        model: dartModel,
         stream: true,
         max_tokens: Number(document.getElementById("max").value),
         messages: [{ role: "user", content: document.getElementById("prompt").value }],
@@ -164,6 +181,7 @@
         refreshMetrics();
       }
     });
+    refreshHealth();
     refreshMetrics();
     setInterval(refreshMetrics, 2000);
   </script>
