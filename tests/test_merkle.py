@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dart.merkle import extent_digest, merkle_root, root_from_extents
-from dart.types import KVExtent
+from dart.cip.merkle import extent_digest, merkle_root, root_from_extents
+from dart.core.types import KVExtent
 
 
 def test_merkle_empty_and_pair() -> None:

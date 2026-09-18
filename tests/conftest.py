@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from dart.engine.synthetic import SyntheticEngine
-from dart.runtime import DartRuntime
-from dart.types import RuntimeConfig
+from dart.core.runtime import DartRuntime
+from dart.core.types import RuntimeConfig
 
 
 @pytest.fixture

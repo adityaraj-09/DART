@@ -2,7 +2,7 @@
 
 The scheduler **is** the congestion controller. Engine knobs are not yaml hyperparameters.
 
-Implemented in `src/dart/cc.py` (`CongestionController`) and applied per continuation in `src/dart/runtime.py`.
+Implemented in `src/dart/core/cc.py` (`CongestionController`) and applied per continuation in `src/dart/core/runtime.py`.
 
 ## State
 

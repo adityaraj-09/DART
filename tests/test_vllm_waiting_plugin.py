@@ -9,9 +9,9 @@ from dart.engine.vllm import VLLMChatEngine
 from dart.engine.vllm_inprocess import InProcessVLLMEngine
 from dart.engine.vllm_plugin import register, vllm_installed
 from dart.engine.vllm_sched import CreditGatedScheduler, RequestStatus
-from dart.protocol import CipName, Interest
-from dart.runtime import DartRuntime
-from dart.types import EngineState, Prompt, RuntimeConfig
+from dart.cip.protocol import CipName, Interest
+from dart.core.runtime import DartRuntime
+from dart.core.types import EngineState, Prompt, RuntimeConfig
 
 
 def test_scheduler_waiting_pin_not_evicted() -> None:
@@ -137,7 +137,7 @@ async def test_decode_zero_is_pause_not_kernel() -> None:
 
 
 async def test_experiment_waiting_suite_ok() -> None:
-    from dart.experiment import waiting_plugin_suite
+    from dart.eval.experiment import waiting_plugin_suite
 
     report = await waiting_plugin_suite()
     assert report["ok"] is True

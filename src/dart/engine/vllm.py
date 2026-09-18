@@ -17,9 +17,9 @@ import httpx
 
 from dart.engine.base import DecodeResult, PrefillResult
 from dart.engine.stats import KernelStats
-from dart.errors import EngineError
-from dart.merkle import bytes_per_extent, extent_digest, root_from_extents
-from dart.types import EngineState, KVExtent, ModelConfig, Prompt
+from dart.core.errors import EngineError
+from dart.cip.merkle import bytes_per_extent, extent_digest, root_from_extents
+from dart.core.types import EngineState, KVExtent, ModelConfig, Prompt
 
 
 def _opaque_extents(state: EngineState, cfg: ModelConfig) -> list[KVExtent]:

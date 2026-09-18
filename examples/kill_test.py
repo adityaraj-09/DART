@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from dart.experiment import compare
+from dart.eval.experiment import compare
 
 
 def main() -> None:

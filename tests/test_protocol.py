@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from dart.errors import NameParseError
-from dart.protocol import CipName, Interest
-from dart.types import InterestKind, ModelConfig
+from dart.core.errors import NameParseError
+from dart.cip.protocol import CipName, Interest
+from dart.core.types import InterestKind, ModelConfig
 
 
 def test_fingerprint_stable() -> None:

@@ -74,7 +74,7 @@ def _serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     from dart.factory import build_runtime
-    from dart.gateway import create_app
+    from dart.api.gateway import create_app
 
     runtime = build_runtime(args.engine, args.model, cas_dir=args.cas_dir, connector=args.connector)
     app = create_app(runtime)
@@ -85,7 +85,7 @@ def _serve(args: argparse.Namespace) -> int:
 def _peer(args: argparse.Namespace) -> int:
     import uvicorn
 
-    from dart.gateway import create_peer_app
+    from dart.api.gateway import create_peer_app
 
     app = create_peer_app(args.cas_dir)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
@@ -95,7 +95,7 @@ def _peer(args: argparse.Namespace) -> int:
 def _mesh(args: argparse.Namespace) -> int:
     import uvicorn
 
-    from dart.gateway import create_app
+    from dart.api.gateway import create_app
     from dart.mesh import build_local_mesh
 
     router = build_local_mesh(
@@ -110,7 +110,7 @@ def _mesh(args: argparse.Namespace) -> int:
 
 
 def _experiment(args: argparse.Namespace) -> int:
-    from dart.experiment import (
+    from dart.eval.experiment import (
         andes_complete,
         cas_peer_hit,
         compare,

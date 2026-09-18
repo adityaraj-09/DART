@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from dart.consumers import DrainPacer, JsonNeedPacer, ReadingPacer, TtsPacer
+from dart.client.consumers import DrainPacer, JsonNeedPacer, ReadingPacer, TtsPacer
 
 
 async def test_reading_pacer_rate_bounds() -> None:

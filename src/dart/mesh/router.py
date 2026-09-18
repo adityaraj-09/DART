@@ -21,14 +21,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from dart.errors import HandoverError, InterestNack, LeaseError
-from dart.kvconn import KVBlob, KVConnector, MemoryKVConnector
-from dart.lease import verify_lease
-from dart.pin import PinnedKVPool
-from dart.protocol import Data, Interest
-from dart.runtime import ContinuationHandle, DartRuntime
-from dart.store import MemoryCAS
-from dart.types import NackReason, Prompt, RuntimeConfig
+from dart.core.errors import HandoverError, InterestNack, LeaseError
+from dart.kv.kvconn import KVBlob, KVConnector, MemoryKVConnector
+from dart.core.lease import verify_lease
+from dart.kv.pin import PinnedKVPool
+from dart.cip.protocol import Data, Interest
+from dart.core.runtime import ContinuationHandle, DartRuntime
+from dart.kv.store import MemoryCAS
+from dart.core.types import NackReason, Prompt, RuntimeConfig
 
 logger = logging.getLogger("dart.mesh")
 
@@ -370,8 +370,8 @@ def build_local_mesh(
 ) -> InterestRouter:
     """N in-process producers sharing CAS, pin table, and a KV connector."""
     from dart.engine.synthetic import SyntheticEngine
-    from dart.kvconn import build_connector
-    from dart.store import MemoryCAS
+    from dart.kv.kvconn import build_connector
+    from dart.kv.store import MemoryCAS
 
     if n < 1:
         raise ValueError("need at least one mesh node")

@@ -18,8 +18,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from dart.errors import NameParseError
-from dart.types import InterestKind, NackReason
+from dart.core.errors import NameParseError
+from dart.core.types import InterestKind, NackReason
 
 _NAME = re.compile(
     r"^/cip/"

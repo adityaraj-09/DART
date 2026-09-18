@@ -150,7 +150,7 @@ See [congestion-control.md](./congestion-control.md). Mapping:
 
 An Interest is a compute capability.
 
-- HMAC-SHA256 lease (`src/dart/lease.py`), secret `DART_SECRET`.  
+- HMAC-SHA256 lease (`src/dart/core/lease.py`), secret `DART_SECRET`.  
 - `window ≤ w_max` (default 128). Cache hits are free; decode spends `decode_quota`.  
 - Duplicate Interests for the same name coalesce (no extra credit).  
 - Billing unit: joules and KV-bytes per **consumed** token, plus a prefill fee.
@@ -167,10 +167,10 @@ An Interest is a compute capability.
 | CIP WebSocket | `/v1/cip` | low-latency consumers |
 | OpenAI facade | `POST /v1/chat/completions` | existing apps; `X-Dart-Pace`, `X-Dart-Window` |
 | Metrics | `GET /metrics` Prometheus, `GET /v1/metrics` JSON | SRE |
-| SDK | `dart.sdk.DartClient` + pacers | product code |
+| SDK | `dart.client.sdk.DartClient` + pacers | product code |
 | CLI | `dart serve`, `dart mesh`, `dart experiment` | operators, kill-test, mesh |
 
-Pacers (`src/dart/consumers.py`):
+Pacers (`src/dart/client/consumers.py`):
 
 - `DrainPacer` — API drainer; credit as fast as the caller pulls.  
 - `ReadingPacer(tokens_per_sec=30)` — compositor.  
@@ -183,21 +183,15 @@ Pacers (`src/dart/consumers.py`):
 
 | Module | Responsibility |
 |---|---|
-| `dart.protocol` | CIP names, Interest / Data / Nack |
-| `dart.lease` | signed continuation capability |
-| `dart.cc` | window, AIMD, speculative K |
-| `dart.store` | token CAS, per-cont KV sleep |
-| `dart.pin` | `kv_root` pin table, adopt without prefill |
-| `dart.kvconn` | LMCache/NIXL-shaped put/get/transfer |
+| `dart.cli` / `dart.factory` | CLI and composition root |
+| `dart.core.*` | Types, errors, leases, CC, runtime |
+| `dart.cip.*` | CIP names, Merkle `kv_root` |
+| `dart.kv.*` | Token CAS, pin table, KV connectors |
 | `dart.mesh` | InterestRouter: CAS → pin holder → cheapest+handover |
-| `dart.merkle` | `kv_root` identity |
-| `dart.runtime` | scheduler + continuation table |
-| `dart.engine.*` | Synthetic / HTTP vLLM / llama.cpp |
-| `dart.engine.vllm_sched` | Waiting-queue plugin: pin blocks, no re-admit |
-| `dart.engine.vllm_inprocess` | In-process producer using that scheduler |
-| `dart.gateway` | FastAPI |
-| `dart.sdk` | product client |
-| `dart.experiment` | push vs credit kill-test, mesh handover |
+| `dart.engine.*` | Synthetic / HTTP vLLM / llama.cpp / waiting plugin |
+| `dart.api` | FastAPI gateway |
+| `dart.client` | SDK and pacers |
+| `dart.eval` | Kill-test, Andes, mesh, waiting suites |
 
 ---
 

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 
-from dart.consumers import DrainPacer, ReadingPacer
+from dart.client.consumers import DrainPacer, ReadingPacer
 from dart.engine.synthetic import SyntheticEngine
-from dart.protocol import CipName, Interest
-from dart.runtime import DartRuntime
-from dart.types import RuntimeConfig
+from dart.cip.protocol import CipName, Interest
+from dart.core.runtime import DartRuntime
+from dart.core.types import RuntimeConfig
 
 
 async def test_no_interest_means_no_decode() -> None:
@@ -74,7 +74,7 @@ async def test_reading_pacer_consumes(runtime: DartRuntime) -> None:
 
 
 async def test_grammar_span_is_one_data(runtime: DartRuntime) -> None:
-    from dart.types import InterestKind
+    from dart.core.types import InterestKind
 
     handle = await runtime.open("json please", max_tokens=64)
     name = CipName.grammar(handle.model_hash, handle.kv_root, "next-value").render()
