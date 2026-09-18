@@ -8,7 +8,7 @@ A live generation is not an HTTP request. It is an address space of objects. Con
 
 This document is the system that is implemented in this repository. Paper-facing eval and the HTTP/vLLM honesty clause: [`limitations.md`](./limitations.md).
 
-DART is a continuation runtime, not a GPU fleet that replaces vLLM. Live vLLM/llama.cpp behind CIP is already the adapter path; the unfinished slice is in-process pin + mesh routing.
+DART is a continuation runtime, not a GPU fleet that replaces vLLM. Live vLLM/llama.cpp behind CIP is already the adapter path. In-process pin (`PinnedKVPool`), NIXL/LMCache-shaped handover (`KVConnector`), and multi-node Interest routing (`InterestRouter`) are implemented; they do not require a vLLM fork. See [`mesh.md`](./mesh.md).
 
 **Paper suites:** `dart experiment --suite paper` (kill-test, Andes-complete, grammar jump vs mask, CAS peer).
 
@@ -34,21 +34,22 @@ Andes noticed humans read slower than GPUs generate, then still generated and bu
                                │ CIP  (JSON/HTTP/WS v1)
 ┌──────────────────────────────▼──────────────────────────────┐
 │ DART control plane                                          │
-│  HMAC leases · anti-amplification · producer selection      │
+│  HMAC leases · anti-amplification · InterestRouter          │
 │  Interest aggregation · congestion controller               │
 └─────────────┬───────────────────────────────┬───────────────┘
               │                               │
    ┌──────────▼──────────┐         ┌──────────▼──────────┐
-   │ Token CAS           │         │ Named KV extents    │
-   │ Memory / FileCAS    │         │ pin · sleep · wake  │
+   │ Token CAS           │         │ PinnedKVPool        │
+   │ Memory / FileCAS    │         │ pin by kv_root      │
    └──────────┬──────────┘         └──────────┬──────────┘
-              │ miss                          │
-   ┌──────────▼───────────────────────────────▼──────────┐
-   │ Credit-gated scheduler                              │
-   │ decode iff credits > 0; else skip kernel, pin KV    │
-   └──────────────────────┬──────────────────────────────┘
-                          │
-        ┌─────────────────┼─────────────────┐
+              │ miss                          │ miss / new locator
+   ┌──────────▼──────────┐         ┌──────────▼──────────┐
+   │ Credit-gated decode │         │ KVConnector         │
+   │ iff credits > 0     │         │ memory/file/LMCache │
+   └──────────┬──────────┘         │ NIXL transfer       │
+              │                    └─────────────────────┘
+              │
+        ┌─────┴───────────┬─────────────────┐
         ▼                 ▼                 ▼
    SyntheticEngine    VLLMChatEngine   LlamaCppEngine
    (CPU, tests,       (prod GPU,       (bench / edge)
@@ -131,13 +132,15 @@ See [congestion-control.md](./congestion-control.md). Mapping:
 
 **Single node v1 (this repo):** one `DartRuntime` asyncio scheduler, one producer, in-process CAS. Enough to be a real primitive and to serve an OpenAI-compatible facade.
 
-**Cluster v2 (ops, not a rewrite):**
+**Cluster (this repo, in-process mesh; ops can split processes):**
 
 1. Keep this runtime as the credit gate in front of each decode worker.  
 2. Put token Data in FileCAS / object storage keyed by CIP name.  
-3. Put KV extents in LMCache; `kv_root` is the identity NIXL already pulls.  
-4. A new locator answering an Interest is a decode worker that `get_num_new_matched_tokens` hits on that root.  
+3. Put KV extents in a `KVConnector` (LMCache-shaped put/get; NIXL-shaped transfer). `kv_root` is the identity.  
+4. `InterestRouter`: CAS hit → live pin holder → cheapest node + handover pull + `adopt` (no re-prefill).  
 5. Do **not** migrate a “request.” The HTTP request is gone; the continuation object remains.
+
+`dart mesh --nodes 3` is the local form. [`mesh.md`](./mesh.md).
 
 **vLLM long-term:** a scheduler plugin that keeps the request in `waiting` with pinned blocks when `W=0`. The HTTP adapter here uses prefix-cached `max_tokens=W` so we do not fork vLLM to ship. The *invariant* is the same: no generate() without credit.
 
@@ -160,11 +163,12 @@ An Interest is a compute capability.
 |---|---|---|
 | Demo compositor | `GET /` | humans, QA |
 | CIP HTTP | `POST /v1/continuations`, `.../interest` | mesh, tools |
+| Mesh | `GET /v1/mesh`, `POST /v1/mesh/interest`, `POST /v1/handover`, `GET /v1/kv` | pin / route / adopt |
 | CIP WebSocket | `/v1/cip` | low-latency consumers |
 | OpenAI facade | `POST /v1/chat/completions` | existing apps; `X-Dart-Pace`, `X-Dart-Window` |
 | Metrics | `GET /metrics` Prometheus, `GET /v1/metrics` JSON | SRE |
 | SDK | `dart.sdk.DartClient` + pacers | product code |
-| CLI | `dart serve`, `dart experiment` | operators, kill-test |
+| CLI | `dart serve`, `dart mesh`, `dart experiment` | operators, kill-test, mesh |
 
 Pacers (`src/dart/consumers.py`):
 
@@ -182,13 +186,16 @@ Pacers (`src/dart/consumers.py`):
 | `dart.protocol` | CIP names, Interest / Data / Nack |
 | `dart.lease` | signed continuation capability |
 | `dart.cc` | window, AIMD, speculative K |
-| `dart.store` | token CAS, KV pin/sleep |
+| `dart.store` | token CAS, per-cont KV sleep |
+| `dart.pin` | `kv_root` pin table, adopt without prefill |
+| `dart.kvconn` | LMCache/NIXL-shaped put/get/transfer |
+| `dart.mesh` | InterestRouter: CAS → pin holder → cheapest+handover |
 | `dart.merkle` | `kv_root` identity |
 | `dart.runtime` | scheduler + continuation table |
 | `dart.engine.*` | Synthetic / vLLM / llama.cpp |
 | `dart.gateway` | FastAPI |
 | `dart.sdk` | product client |
-| `dart.experiment` | push vs credit kill-test |
+| `dart.experiment` | push vs credit kill-test, mesh handover |
 
 ---
 

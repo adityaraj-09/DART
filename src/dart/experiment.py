@@ -267,10 +267,101 @@ async def paper_suite(
     gram = await grammar_ablation()
     with tempfile.TemporaryDirectory() as td:
         cas = await cas_peer_hit(cas_dir or td)
+    mesh = await mesh_handover_suite()
     return {
         "kill_test": kill,
         "andes_complete": andes,
         "grammar": gram,
         "cas_peer": cas,
+        "mesh": mesh,
         "limitations": "docs/limitations.md",
     }
+
+
+async def mesh_handover_suite() -> dict[str, Any]:
+    """Pin resume, CAS route, pin-holder preference, NIXL handover without prefill."""
+    from dart.mesh import build_local_mesh
+    from dart.protocol import CipName, Interest
+
+    mesh = build_local_mesh(
+        3,
+        connector="nixl",
+        seed=11,
+        costs=[10.0, 5.0, 1.0],
+        poll_interval_s=0.001,
+        decode_quota=64,
+        segment_size=8,
+        w_init=16,
+        interest_lifetime_s=5.0,
+    )
+    await mesh.start()
+    try:
+        handle = await mesh.open("named mesh continuation", node_id="node-0", max_tokens=48)
+        prefills_after_open = [getattr(n.runtime.engine, "prefills", 0) for n in mesh.nodes]
+        name0 = CipName.tokens(handle.model_hash, handle.kv_root, 0).render()
+        first, d0 = await mesh.route(
+            Interest(name=name0, window=8, lifetime_ms=3000, lease=handle.lease, cont_id=handle.cont_id),
+            lease=handle.lease,
+        )
+        kernels_after_first = [getattr(n.runtime.engine, "kernel_launches", 0) for n in mesh.nodes]
+
+        # CAS: same name, any node, no extra kernel.
+        again, d_cas = await mesh.route(
+            Interest(name=name0, window=8, lifetime_ms=3000, lease=handle.lease, cont_id=handle.cont_id),
+            lease=handle.lease,
+        )
+        kernels_after_cas = [getattr(n.runtime.engine, "kernel_launches", 0) for n in mesh.nodes]
+
+        # Pin holder (node-0, expensive) must win over cheapest (node-2).
+        name1 = CipName.tokens(handle.model_hash, first.kv_root, 1).render()
+        second, d_pin = await mesh.route(
+            Interest(name=name1, window=8, lifetime_ms=3000, lease=handle.lease, cont_id=handle.cont_id),
+            lease=handle.lease,
+        )
+        kernels_after_pin = [getattr(n.runtime.engine, "kernel_launches", 0) for n in mesh.nodes]
+
+        await mesh.nodes[0].runtime.release_for_handover(handle.cont_id)
+        name2 = CipName.tokens(handle.model_hash, second.kv_root, 2).render()
+        third, d_ho = await mesh.route(
+            Interest(name=name2, window=8, lifetime_ms=3000, lease=handle.lease, cont_id=handle.cont_id),
+            lease=handle.lease,
+        )
+        prefills_after = [getattr(n.runtime.engine, "prefills", 0) for n in mesh.nodes]
+        kernels_after_ho = [getattr(n.runtime.engine, "kernel_launches", 0) for n in mesh.nodes]
+
+        ok = (
+            d0.kind.value == "pin"
+            and d_cas.kind.value == "cas"
+            and d_cas.cache_hit
+            and again.text == first.text
+            and kernels_after_cas == kernels_after_first
+            and d_pin.node_id == "node-0"
+            and d_pin.kind.value == "pin"
+            and kernels_after_pin[2] == kernels_after_first[2]
+            and d_ho.kind.value == "handover"
+            and d_ho.node_id == "node-2"
+            and d_ho.prefill_skipped
+            and prefills_after == prefills_after_open
+            and prefills_after[2] == 0
+            and kernels_after_ho[2] >= 1
+            and third.token_count() > 0
+        )
+        return {
+            "open_prefills": prefills_after_open,
+            "first_route": d0.as_dict(),
+            "cas_route": d_cas.as_dict(),
+            "pin_route": d_pin.as_dict(),
+            "handover_route": d_ho.as_dict(),
+            "kernels": {
+                "after_first": kernels_after_first,
+                "after_cas": kernels_after_cas,
+                "after_pin": kernels_after_pin,
+                "after_handover": kernels_after_ho,
+            },
+            "prefills_after": prefills_after,
+            "transfer_bytes": d_ho.transfer_bytes,
+            "connector": mesh.connector.metrics(),
+            "ok": ok,
+        }
+    finally:
+        await mesh.aclose()

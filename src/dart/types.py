@@ -147,6 +147,9 @@ class ContinuationMetrics(BaseModel):
     pacer_inventory_hw: int = 0
     grammar_masked_launches: int = 0
     grammar_jump_launches: int = 0
+    prefills_skipped: int = 0
+    handovers: int = 0
+    pin_hits: int = 0
 
     def snapshot(self) -> dict[str, Any]:
         unused = max(0, self.tokens_generated - self.tokens_consumed)

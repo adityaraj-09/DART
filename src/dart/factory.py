@@ -8,6 +8,8 @@ from dart.engine.llamacpp import LlamaCppEngine
 from dart.engine.synthetic import SyntheticEngine
 from dart.engine.vllm import VLLMChatEngine
 from dart.engine.cache_only import CacheOnlyEngine
+from dart.kvconn import KVConnector, build_connector
+from dart.pin import PinnedKVPool
 from dart.runtime import DartRuntime
 from dart.types import ModelConfig, RuntimeConfig
 
@@ -38,6 +40,8 @@ def build_runtime(
     cas_dir: str | None = None,
     secret: str | None = None,
     step_latency_s: float = 0.0,
+    connector: str | KVConnector | None = None,
+    pin_pool: PinnedKVPool | None = None,
     **cfg: object,
 ) -> DartRuntime:
     engine = build_engine(kind, model, step_latency_s=step_latency_s)
@@ -47,7 +51,17 @@ def build_runtime(
         producer_id=os.environ.get("DART_PRODUCER_ID") or "local-0",
         **{k: v for k, v in cfg.items() if v is not None},  # type: ignore[arg-type]
     )
-    return DartRuntime(engine, config)
+    conn: KVConnector | None
+    if isinstance(connector, str) or connector is None:
+        kind_conn = connector or os.environ.get("DART_KV_CONNECTOR") or "memory"
+        kv_path = os.environ.get("DART_KV_DIR") or cas_dir
+        try:
+            conn = build_connector(kind_conn, path=kv_path if kind_conn in {"file", "nixl"} else None)
+        except ValueError:
+            conn = build_connector("memory")
+    else:
+        conn = connector
+    return DartRuntime(engine, config, pin_pool=pin_pool, connector=conn)
 
 
 def describe_engine(engine: object) -> dict[str, str]:

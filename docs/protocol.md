@@ -66,6 +66,10 @@ Reasons: `no_credit`, `no_model`, `busy`, `expired`, `amplification`, `unknown_n
 | `POST` | `/v1/continuations/{id}/ack` | Explicit consume ACK |
 | `DELETE` | `/v1/continuations/{id}` | Zero credit, sleep KV |
 | `GET` | `/v1/continuations/{id}` | Cursor + metrics |
+| `POST` | `/v1/mesh/interest` | Router: CAS → pin holder → cheapest + handover |
+| `POST` | `/v1/handover` | Adopt named KV onto this process (no prefill) |
+| `GET` | `/v1/kv?root=` | Pin / connector lookup by `kv_root` |
+| `GET` | `/v1/mesh` | Mesh nodes and route counters |
 | `WS` | `/v1/cip` | Framed Interest/Data/Nack/Ack |
 | `POST` | `/v1/chat/completions` | OpenAI facade |
 

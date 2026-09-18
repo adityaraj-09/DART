@@ -30,3 +30,11 @@ class InterestNack(DartError):
         self.reason = reason
         self.detail = detail
         super().__init__(f"{reason}: {detail}" if detail else reason)
+
+
+class PinMissError(DartError):
+    """No live pin for this kv_root; cannot adopt without re-prefill."""
+
+
+class HandoverError(DartError):
+    """Named KV transfer failed (connector miss or no mesh node)."""

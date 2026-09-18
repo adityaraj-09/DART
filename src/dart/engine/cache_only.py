@@ -22,9 +22,11 @@ class CacheOnlyEngine:
         self.stats = KernelStats()
         self.kernel_launches = 0
         self.decode_tokens = 0
+        self.prefills = 0
         self.supports_rollback = False
 
     async def prefill(self, prompt: Prompt, state: EngineState) -> PrefillResult:
+        self.prefills += 1
         state.prefix_text = prompt.as_text()
         state.kv_root = state.kv_root or "0" * 64
         return PrefillResult(state=state, text=state.prefix_text, extents=[])

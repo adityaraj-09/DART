@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
-from dart.errors import AmplificationError, DartError, InterestNack, LeaseError
+from dart.errors import AmplificationError, DartError, HandoverError, InterestNack, LeaseError, PinMissError
 from dart.protocol import CipMessage, CipName, Interest
 from dart.runtime import ContinuationHandle, DartRuntime
 from dart.types import ChatMessage, InterestKind, Prompt
@@ -51,6 +51,13 @@ class AckBody(BaseModel):
     lease: str | None = None
 
 
+class HandoverBody(BaseModel):
+    lease: str
+    kv_root: str | None = None
+    from_node: str = ""
+    cont_id: str | None = None
+
+
 class ChatCompletionRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
@@ -61,7 +68,7 @@ class ChatCompletionRequest(BaseModel):
     temperature: float = 0.8
 
 
-def create_app(runtime: DartRuntime) -> FastAPI:
+def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
     app = FastAPI(
         title="DART",
         description="Demand-Addressed Runtime Tokens — Interest-Driven Decode",
@@ -74,6 +81,7 @@ def create_app(runtime: DartRuntime) -> FastAPI:
         allow_headers=["*"],
     )
     app.state.runtime = runtime
+    app.state.router = router
 
     if STATIC.exists():
         app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
@@ -101,6 +109,77 @@ def create_app(runtime: DartRuntime) -> FastAPI:
     async def engine_probe() -> dict[str, Any]:
         return await runtime.engine_probe()
 
+    @app.get("/v1/mesh")
+    async def mesh_status() -> dict[str, Any]:
+        if router is None:
+            return {
+                "nodes": [
+                    {
+                        "node_id": runtime.config.producer_id,
+                        "continuations": len(runtime._conts),
+                        "pins": runtime.pin_pool.metrics(),
+                    }
+                ],
+                "single_node": True,
+            }
+        return router.status()
+
+    @app.post("/v1/mesh/interest")
+    async def mesh_interest(body: InterestBody) -> dict[str, Any]:
+        if not body.name:
+            raise HTTPException(400, "name required")
+        if not body.lease:
+            raise HTTPException(400, "lease required")
+        req = Interest(
+            name=body.name,
+            window=body.window,
+            lifetime_ms=body.lifetime_ms,
+            locator=body.locator,
+            kind=body.kind,
+            grammar_span=body.grammar_span,
+            lease=body.lease,
+        )
+        try:
+            if router is not None:
+                data, decision = await router.route(req, lease=body.lease)
+            else:
+                data = await runtime.interest(req, lease=body.lease)
+                decision = None
+        except (LeaseError, AmplificationError, InterestNack, PinMissError, HandoverError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        payload = json.loads(data.model_dump_json())
+        if decision is not None:
+            payload["route"] = decision.as_dict()
+        return payload
+
+    @app.post("/v1/handover")
+    async def handover(body: HandoverBody) -> dict[str, Any]:
+        try:
+            handle = await runtime.adopt(
+                lease=body.lease, kv_root=body.kv_root, from_node=body.from_node
+            )
+        except (LeaseError, PinMissError, InterestNack, HandoverError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {**handle.dump(), "adopted": True, "prefill_skipped": True}
+
+    @app.get("/v1/kv")
+    async def kv_lookup(root: str) -> dict[str, Any]:
+        rec = runtime.pin_pool.lookup(root)
+        if rec is not None:
+            return {"source": "pin", **rec.as_dict()}
+        if runtime.connector is not None:
+            blob = await runtime.connector.get(root)
+            if blob is not None:
+                return {
+                    "source": "connector",
+                    "kv_root": blob.kv_root,
+                    "holder_id": blob.holder_id,
+                    "nbytes": blob.nbytes,
+                    "cont_id": blob.cont_id,
+                    "pos": blob.state.pos,
+                }
+        raise HTTPException(404, f"no KV for {root}")
+
     @app.get("/v1/cas")
     async def cas_get(name: str) -> dict[str, Any]:
         data = runtime.get_named(name)
@@ -127,7 +206,8 @@ def create_app(runtime: DartRuntime) -> FastAPI:
             prompt = body.prompt
         else:
             raise HTTPException(400, "prompt or messages required")
-        handle = await runtime.open(
+        opener = router.open if router is not None else runtime.open
+        handle = await opener(
             prompt, max_tokens=body.max_tokens, temperature=body.temperature, model=body.model
         )
         return handle.dump()
@@ -159,8 +239,11 @@ def create_app(runtime: DartRuntime) -> FastAPI:
             lease=lease,
         )
         try:
-            data = await runtime.interest(req, lease=lease)
-        except (LeaseError, AmplificationError, InterestNack) as exc:
+            if router is not None:
+                data, _decision = await router.route(req, lease=lease)
+            else:
+                data = await runtime.interest(req, lease=lease)
+        except (LeaseError, AmplificationError, InterestNack, PinMissError, HandoverError) as exc:
             raise HTTPException(400, str(exc)) from exc
         except DartError as exc:
             raise HTTPException(500, str(exc)) from exc
@@ -289,11 +372,17 @@ def create_app(runtime: DartRuntime) -> FastAPI:
 
     @app.on_event("startup")
     async def _up() -> None:
-        await runtime.start()
+        if router is not None:
+            await router.start()
+        else:
+            await runtime.start()
 
     @app.on_event("shutdown")
     async def _down() -> None:
-        await runtime.aclose()
+        if router is not None:
+            await router.aclose()
+        else:
+            await runtime.aclose()
 
     return app
 

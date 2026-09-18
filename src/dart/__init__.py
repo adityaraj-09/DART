@@ -15,11 +15,16 @@ from dart.errors import (
     AmplificationError,
     DartError,
     EngineError,
+    HandoverError,
     InterestNack,
     LeaseError,
     NameParseError,
+    PinMissError,
 )
+from dart.kvconn import KVBlob, build_connector
 from dart.lease import ContinuationLease, sign_lease, verify_lease
+from dart.mesh import InterestRouter, build_local_mesh
+from dart.pin import PinnedKVPool
 from dart.protocol import CipName, Data, Interest, Nack
 from dart.runtime import ContinuationHandle, DartRuntime, RuntimeConfig
 from dart.store import FileCAS, KVStore, MemoryCAS
@@ -41,20 +46,27 @@ __all__ = [
     "Engine",
     "EngineError",
     "FileCAS",
+    "HandoverError",
     "Interest",
     "InterestNack",
+    "InterestRouter",
     "JsonNeedPacer",
     "KernelStats",
+    "KVBlob",
     "KVStore",
     "LeaseError",
     "MemoryCAS",
     "Nack",
     "NameParseError",
+    "PinnedKVPool",
+    "PinMissError",
     "PrefillResult",
     "ReadingPacer",
     "RuntimeConfig",
     "SyntheticEngine",
     "TtsPacer",
+    "build_connector",
+    "build_local_mesh",
     "run_andes",
     "sign_lease",
     "stats_of",

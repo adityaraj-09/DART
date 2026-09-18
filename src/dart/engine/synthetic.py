@@ -104,6 +104,7 @@ class SyntheticEngine:
         self.stats = KernelStats()
         self.kernel_launches = 0
         self.decode_tokens = 0
+        self.prefills = 0
         self.supports_rollback = True
 
     def _extents(self, ids: list[int], pos: int) -> list[KVExtent]:
@@ -120,6 +121,7 @@ class SyntheticEngine:
         return extents
 
     async def prefill(self, prompt: Prompt, state: EngineState) -> PrefillResult:
+        self.prefills += 1
         text = prompt.as_text()
         ids = prompt.token_ids or _tokenize(text)
         if not ids:

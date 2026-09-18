@@ -23,11 +23,27 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--port", type=int, default=int(os.environ.get("DART_PORT", "8090")))
     serve.add_argument("--cas-dir", default=os.environ.get("DART_CAS_DIR"))
     serve.add_argument("--reload", action="store_true")
+    serve.add_argument(
+        "--connector",
+        default=os.environ.get("DART_KV_CONNECTOR", "memory"),
+        help="KV connector: memory | file | lmcache | nixl",
+    )
 
     peer = sub.add_parser("peer", help="CAS-only peer: satisfy Interests with no GPU")
     peer.add_argument("--cas-dir", required=True)
     peer.add_argument("--host", default="0.0.0.0")
     peer.add_argument("--port", type=int, default=8091)
+
+    mesh = sub.add_parser("mesh", help="In-process multi-node Interest mesh")
+    mesh.add_argument("--nodes", type=int, default=3)
+    mesh.add_argument(
+        "--connector",
+        default="nixl",
+        choices=["memory", "file", "lmcache", "nixl"],
+    )
+    mesh.add_argument("--host", default="0.0.0.0")
+    mesh.add_argument("--port", type=int, default=8090)
+    mesh.add_argument("--kv-dir", default=None)
 
     exp = sub.add_parser("experiment", help="Kill-test / Andes / grammar / CAS / paper suite")
     exp.add_argument("--seconds", type=float, default=2.0)
@@ -37,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     exp.add_argument(
         "--suite",
         default="kill",
-        choices=["kill", "andes", "grammar", "cas", "paper"],
+        choices=["kill", "andes", "grammar", "cas", "paper", "mesh"],
     )
     exp.add_argument("--cas-dir", default=None)
 
@@ -46,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         return _serve(args)
     if args.cmd == "peer":
         return _peer(args)
+    if args.cmd == "mesh":
+        return _mesh(args)
     if args.cmd == "experiment":
         return _experiment(args)
     parser.error("unknown command")
@@ -58,7 +76,7 @@ def _serve(args: argparse.Namespace) -> int:
     from dart.factory import build_runtime
     from dart.gateway import create_app
 
-    runtime = build_runtime(args.engine, args.model, cas_dir=args.cas_dir)
+    runtime = build_runtime(args.engine, args.model, cas_dir=args.cas_dir, connector=args.connector)
     app = create_app(runtime)
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload, log_level="info")
     return 0
@@ -74,8 +92,32 @@ def _peer(args: argparse.Namespace) -> int:
     return 0
 
 
+def _mesh(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from dart.gateway import create_app
+    from dart.mesh import build_local_mesh
+
+    router = build_local_mesh(
+        args.nodes,
+        connector=args.connector,
+        kv_path=args.kv_dir,
+        poll_interval_s=0.002,
+    )
+    app = create_app(router.nodes[0].runtime, router=router)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
 def _experiment(args: argparse.Namespace) -> int:
-    from dart.experiment import andes_complete, cas_peer_hit, compare, grammar_ablation, paper_suite
+    from dart.experiment import (
+        andes_complete,
+        cas_peer_hit,
+        compare,
+        grammar_ablation,
+        mesh_handover_suite,
+        paper_suite,
+    )
 
     if args.suite == "kill":
         report = asyncio.run(
@@ -114,6 +156,11 @@ def _experiment(args: argparse.Namespace) -> int:
         json.dump(report, sys.stdout, indent=2)
         sys.stdout.write("\n")
         return 0 if report["match"] else 1
+    if args.suite == "mesh":
+        report = asyncio.run(mesh_handover_suite())
+        json.dump(report, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+        return 0 if report["ok"] else 1
     report = asyncio.run(
         paper_suite(duration_s=args.seconds, max_tokens=args.max_tokens, cas_dir=args.cas_dir)
     )
@@ -124,6 +171,7 @@ def _experiment(args: argparse.Namespace) -> int:
         and report["andes_complete"]["idd_beats_andes_on_inventory"]
         and report["grammar"]["one_data_object"]
         and report["cas_peer"]["match"]
+        and report["mesh"]["ok"]
     )
     return 0 if ok else 1
 

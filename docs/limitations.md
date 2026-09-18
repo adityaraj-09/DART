@@ -10,11 +10,10 @@ DART’s claim is the inversion: **outstanding Interests are the only thing that
 
 **What is actually next** (engineering, not the idea):
 
-- In-process vLLM scheduler plugin: request stays in `waiting` with pinned KV when `W=0` (avoids HTTP admission re-entry and prefix-cache eviction).
-- Named KV handover via LMCache / NIXL so a new locator can answer the next Interest.
-- Multi-node Interest routing (a serving mesh), not one HTTP frontend.
+- In-process vLLM scheduler plugin: request stays in `waiting` with pinned KV when `W=0` (avoids HTTP admission re-entry and prefix-cache eviction). The control-plane pin (`PinnedKVPool`) and mesh router already exist for in-process engines; they do not pin vLLM’s GPU blocks over HTTP.
+- Optional real LMCache GPU pages / NIXL RDMA. The connectors are in-repo (`memory` / `file` / `lmcache` / `nixl`); without those libraries, transfer is memcpy and metrics say `rdma_available=false`.
 
-Say that in the paper. Do not promise a fleet you did not build, and do not hide the adapters you did.
+Named KV handover and multi-node Interest routing are implemented. See [`mesh.md`](./mesh.md). Do not promise a fleet you did not build, and do not hide the adapters you did.
 
 ## HTTP path re-enters admission
 

@@ -16,8 +16,10 @@ from typing import Any, AsyncIterator
 from dart.cc import CongestionController
 from dart.engine.base import Engine
 from dart.engine.stats import stats_of
-from dart.errors import AmplificationError, InterestNack, LeaseError
+from dart.errors import AmplificationError, InterestNack, LeaseError, PinMissError
+from dart.kvconn import KVBlob, KVConnector
 from dart.lease import ContinuationLease, sign_lease, verify_lease
+from dart.pin import PinnedKVPool
 from dart.protocol import CipName, Data, Interest, Nack, TokenSegment
 from dart.store import FileCAS, KVStore, MemoryCAS
 from dart.types import (
@@ -63,6 +65,8 @@ class Continuation:
     tokens_since_ack: int = 0
     closed: bool = False
     last_skip_at: float = 0.0
+    adopted: bool = False
+    handed_over: bool = False
 
 
 class ContinuationHandle:
@@ -107,6 +111,8 @@ class DartRuntime:
         *,
         cas: MemoryCAS | FileCAS | None = None,
         kv: KVStore | None = None,
+        pin_pool: PinnedKVPool | None = None,
+        connector: KVConnector | None = None,
     ) -> None:
         self.engine = engine
         self.config = config or RuntimeConfig()
@@ -114,6 +120,8 @@ class DartRuntime:
             FileCAS(self.config.cas_dir) if self.config.cas_dir else MemoryCAS()
         )
         self.kv = kv or KVStore()
+        self.pin_pool = pin_pool or PinnedKVPool()
+        self.connector = connector
         self._conts: dict[str, Continuation] = {}
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
@@ -191,11 +199,131 @@ class DartRuntime:
             producer_id=cfg.producer_id,
             prompt_text=p.as_text(),
         )
-        self.kv.replace(cont_id, state.kv_extents)
-        self.kv.pin(cont_id, lease.expiry_unix)
         self._conts[cont_id] = cont
+        await self._publish_kv(cont)
         logger.info("opened continuation %s kv_root=%s pos=%s", cont_id[:8], state.kv_root[:12], state.pos)
         return ContinuationHandle(cont)
+
+    async def adopt(
+        self,
+        *,
+        lease: str,
+        kv_root: str | None = None,
+        blob: KVBlob | None = None,
+        from_node: str = "",
+    ) -> ContinuationHandle:
+        """Install a continuation from pinned/transferred KV. Never prefills."""
+        await self.start()
+        cap = verify_lease(lease, self.config.secret)
+        existing = self._conts.get(cap.cont_id)
+        if existing is not None and not existing.handed_over and not existing.closed:
+            existing.metrics.pin_hits += 1
+            return ContinuationHandle(existing)
+
+        rec_state: EngineState | None = None
+        segment_index = 0
+        output_text = ""
+        prompt_text = ""
+        max_tokens = cap.decode_quota
+        model_hash = cap.model_hash
+        root = kv_root or cap.kv_root
+
+        if blob is not None:
+            if blob.model_hash and blob.model_hash != cap.model_hash:
+                raise InterestNack(NackReason.NO_MODEL.value, "KV blob model mismatch")
+            rec_state = blob.state.model_copy(deep=True)
+            root = blob.kv_root
+            model_hash = blob.model_hash or model_hash
+            segment_index = blob.segment_index
+            output_text = blob.output_text
+            prompt_text = blob.prompt_text
+            max_tokens = blob.max_tokens or max_tokens
+        else:
+            rec = self.pin_pool.lookup(root)
+            if rec is not None:
+                if rec.model_hash != cap.model_hash:
+                    raise InterestNack(NackReason.NO_MODEL.value, "pin model mismatch")
+                rec_state = rec.clone_state()
+                segment_index = rec.segment_index
+                output_text = rec.output_text
+                prompt_text = rec.prompt_text
+                max_tokens = rec.max_tokens or max_tokens
+                try:
+                    self.pin_pool.adopt(root, self.config.producer_id)
+                except PinMissError:
+                    pass
+            elif self.connector is not None:
+                got = await self.connector.get(root)
+                if got is not None:
+                    if got.model_hash and got.model_hash != cap.model_hash:
+                        raise InterestNack(NackReason.NO_MODEL.value, "connector blob model mismatch")
+                    rec_state = got.state.model_copy(deep=True)
+                    segment_index = got.segment_index
+                    output_text = got.output_text
+                    prompt_text = got.prompt_text
+                    max_tokens = got.max_tokens or max_tokens
+                    model_hash = got.model_hash or model_hash
+
+        if rec_state is None:
+            raise PinMissError(f"cannot adopt {root[:16]} without pin or KV blob")
+        if model_hash != self.engine.config.fingerprint():
+            raise InterestNack(NackReason.NO_MODEL.value, "producer fingerprint mismatch")
+
+        cfg = self.config
+        lease_obj = cap.model_copy(update={"kv_root": rec_state.kv_root, "pos": rec_state.pos})
+        metrics = ContinuationMetrics(
+            prefill_tokens=len(rec_state.prompt_ids),
+            prefills_skipped=1,
+            handovers=1,
+            pin_hits=1,
+        )
+        metrics.kv_bytes_high_water = sum(e.nbytes for e in rec_state.kv_extents)
+        cont = Continuation(
+            id=cap.cont_id,
+            lease=lease_obj,
+            signed=lease,
+            cc=CongestionController(
+                w_init=cfg.w_init,
+                w_max=cfg.w_max,
+                k_max=cfg.k_max,
+                t_decode_s=cfg.t_decode_s,
+                rtt_s=cfg.rtt_init_s,
+            ),
+            state=rec_state,
+            model_hash=model_hash,
+            metrics=metrics,
+            lock=asyncio.Lock(),
+            pending={},
+            wakeup=asyncio.Event(),
+            max_tokens=max_tokens,
+            producer_id=cfg.producer_id,
+            prompt_text=prompt_text,
+            segment_index=segment_index,
+            output_text=output_text,
+            adopted=True,
+        )
+        self._conts[cap.cont_id] = cont
+        await self._publish_kv(cont)
+        logger.info(
+            "adopted %s kv_root=%s from %s (no prefill)",
+            cap.cont_id[:8],
+            rec_state.kv_root[:12],
+            from_node or "pin",
+        )
+        return ContinuationHandle(cont)
+
+    async def release_for_handover(self, cont_id: str) -> EngineState:
+        """Give up decode so another locator can adopt. CAS still answers."""
+        cont = self.get(cont_id)
+        async with cont.lock:
+            if not cont.handed_over:
+                self._fail_pending(cont, NackReason.BUSY, "handed over")
+                cont.handed_over = True
+                cont.sleeping = True
+                cont.metrics.handovers += 1
+                self.kv.sleep(cont_id)
+                self.pin_pool.sleep(cont.state.kv_root)
+            return cont.state.model_copy(deep=True)
 
     def get(self, cont_id: str) -> Continuation:
         try:
@@ -210,11 +338,13 @@ class DartRuntime:
         cap = verify_lease(token, self.config.secret)
         cap.assert_window(req.window)
         cont = self.get(cap.cont_id)
-        if cont.closed or cont.done:
+        if cont.closed or cont.done or cont.handed_over:
             cached = self.cas.get_data(req.name)
             if cached:
                 cached = cached.model_copy(update={"cache_hit": True})
                 return cached
+            if cont.handed_over:
+                raise InterestNack(NackReason.BUSY.value, "handed over")
             raise InterestNack(NackReason.DONE.value, "continuation finished")
 
         cached = self.cas.get_data(req.name)
@@ -379,6 +509,9 @@ class DartRuntime:
             totals.nacks += m.nacks
             totals.prefill_tokens += m.prefill_tokens
             totals.grammar_spans += m.grammar_spans
+            totals.prefills_skipped += m.prefills_skipped
+            totals.handovers += m.handovers
+            totals.pin_hits += m.pin_hits
             totals.kv_bytes_high_water = max(totals.kv_bytes_high_water, m.kv_bytes_high_water)
             conts.append(
                 {
@@ -390,6 +523,8 @@ class DartRuntime:
                     "k": c.cc.speculative_k(),
                     "kv_root": c.state.kv_root,
                     "pos": c.state.pos,
+                    "adopted": c.adopted,
+                    "handed_over": c.handed_over,
                     "metrics": m.snapshot(),
                 }
             )
@@ -410,6 +545,9 @@ class DartRuntime:
             "engine": stats_of(self.engine).snapshot(),
             "totals": totals.snapshot(),
             "items": conts,
+            "pins": self.pin_pool.metrics(),
+            "connector": self.connector.metrics() if self.connector is not None else None,
+            "engine_prefills": getattr(self.engine, "prefills", None),
         }
 
     async def engine_probe(self) -> dict[str, Any]:
@@ -453,6 +591,15 @@ class DartRuntime:
             "# HELP dart_continuations Live continuation objects.",
             "# TYPE dart_continuations gauge",
             f"dart_continuations {s['continuations']}",
+            "# HELP dart_kv_pins Live kv_root pins.",
+            "# TYPE dart_kv_pins gauge",
+            f"dart_kv_pins {s['pins']['live']}",
+            "# HELP dart_pin_adopts Continuations resumed from a pin without prefill.",
+            "# TYPE dart_pin_adopts counter",
+            f"dart_pin_adopts {s['pins']['adopts']}",
+            "# HELP dart_prefills_skipped Adopts that skipped engine.prefill.",
+            "# TYPE dart_prefills_skipped counter",
+            f"dart_prefills_skipped {t.get('prefills_skipped', 0)}",
         ]
         return "\n".join(lines) + "\n"
 
@@ -472,7 +619,7 @@ class DartRuntime:
         ready: list[Continuation] = []
         sleeping = 0
         for cont in list(self._conts.values()):
-            if cont.done or cont.closed:
+            if cont.done or cont.closed or cont.handed_over:
                 continue
             if cont.state.stopped or len(cont.state.output_ids) >= cont.max_tokens:
                 await self._finish(cont)
@@ -484,6 +631,7 @@ class DartRuntime:
             if cont.cc.credits > 0 or cont.grammar_span or cont.pending:
                 if cont.sleeping:
                     self.kv.wake(cont.id)
+                    self.pin_pool.wake(cont.state.kv_root)
                     cont.sleeping = False
                 ready.append(cont)
             else:
@@ -495,6 +643,7 @@ class DartRuntime:
                 if not cont.sleeping:
                     cont.sleeping = True
                     self.kv.sleep(cont.id)
+                    self.pin_pool.sleep(cont.state.kv_root)
                     self.kv.pin(cont.id, time.time() + cont.lease.remaining_ttl())
         if not ready:
             return
@@ -503,7 +652,7 @@ class DartRuntime:
 
     async def _decode_one(self, cont: Continuation) -> None:
         async with cont.lock:
-            if cont.done or (cont.cc.credits <= 0 and not cont.grammar_span):
+            if cont.done or cont.closed or cont.handed_over or (cont.cc.credits <= 0 and not cont.grammar_span):
                 return
             remaining = cont.max_tokens - len(cont.state.output_ids)
             if remaining <= 0:
@@ -530,7 +679,7 @@ class DartRuntime:
             return
 
         async with cont.lock:
-            if cont.closed:
+            if cont.closed or cont.handed_over:
                 return
             if not result.kernel_launched:
                 return
@@ -585,6 +734,7 @@ class DartRuntime:
             cont.lease.pos = data.pos
             cont.segment_index += 1
             cont.tokens_since_ack += len(committed_ids)
+            await self._publish_kv(cont)
             delivered = False
             for name, fut in waiters:
                 if fut.done():
@@ -612,6 +762,7 @@ class DartRuntime:
         cont.done = True
         cont.sleeping = True
         self.kv.sleep(cont.id)
+        self.pin_pool.sleep(cont.state.kv_root)
         self._fail_pending(cont, NackReason.DONE, "stopped")
 
     def _fail_pending(self, cont: Continuation, reason: NackReason, detail: str) -> None:
@@ -620,6 +771,43 @@ class DartRuntime:
                 fut.set_result(Nack(name=name, reason=reason, detail=detail))
                 cont.metrics.nacks += 1
         cont.pending.clear()
+
+    async def _publish_kv(self, cont: Continuation) -> None:
+        until = time.time() + max(cont.lease.remaining_ttl(), 1.0)
+        self.pin_pool.pin(
+            cont.state.kv_root,
+            cont.state,
+            holder_id=self.config.producer_id,
+            until=until,
+            cont_id=cont.id,
+            model_hash=cont.model_hash,
+            lease=cont.signed,
+            segment_index=cont.segment_index,
+            output_text=cont.output_text,
+            prompt_text=cont.prompt_text,
+            max_tokens=cont.max_tokens,
+            on_gpu=not cont.sleeping,
+        )
+        self.kv.replace(cont.id, cont.state.kv_extents)
+        self.kv.pin(cont.id, until)
+        if self.connector is None:
+            return
+        blob = KVBlob.from_state(
+            kv_root=cont.state.kv_root,
+            model_hash=cont.model_hash,
+            cont_id=cont.id,
+            state=cont.state,
+            holder_id=self.config.producer_id,
+            lease=cont.signed,
+            segment_index=cont.segment_index,
+            output_text=cont.output_text,
+            prompt_text=cont.prompt_text,
+            max_tokens=cont.max_tokens,
+        )
+        try:
+            await self.connector.put(blob)
+        except Exception:
+            logger.exception("kv connector put failed for %s", cont.id[:8])
 
 
 def _as_prompt(prompt: Prompt | str | list[ChatMessage] | list[dict[str, str]]) -> Prompt:
