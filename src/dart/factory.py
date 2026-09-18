@@ -1,0 +1,56 @@
+"""Build a runtime from CLI flags / environment."""
+
+from __future__ import annotations
+
+import os
+
+from dart.engine.llamacpp import LlamaCppEngine
+from dart.engine.synthetic import SyntheticEngine
+from dart.engine.vllm import VLLMChatEngine
+from dart.runtime import DartRuntime
+from dart.types import ModelConfig, RuntimeConfig
+
+
+def build_engine(
+    kind: str = "synthetic",
+    model: str | None = None,
+    *,
+    step_latency_s: float = 0.0,
+) -> SyntheticEngine | VLLMChatEngine | LlamaCppEngine:
+    kind = (kind or os.environ.get("DART_ENGINE") or "synthetic").lower()
+    model = model or os.environ.get("DART_MODEL") or "dart-synth-8b"
+    if kind in {"synthetic", "synth", "local"}:
+        return SyntheticEngine(model, step_latency_s=step_latency_s)
+    if kind == "vllm":
+        return VLLMChatEngine(model)
+    if kind in {"llamacpp", "llama.cpp", "llama"}:
+        return LlamaCppEngine(model)
+    raise ValueError(f"unknown engine {kind!r}; use synthetic | vllm | llamacpp")
+
+
+def build_runtime(
+    kind: str = "synthetic",
+    model: str | None = None,
+    *,
+    cas_dir: str | None = None,
+    secret: str | None = None,
+    step_latency_s: float = 0.0,
+    **cfg: object,
+) -> DartRuntime:
+    engine = build_engine(kind, model, step_latency_s=step_latency_s)
+    config = RuntimeConfig(
+        cas_dir=cas_dir or os.environ.get("DART_CAS_DIR"),
+        secret=secret or os.environ.get("DART_SECRET") or "dart-dev-secret-change-me",
+        producer_id=os.environ.get("DART_PRODUCER_ID") or "local-0",
+        **{k: v for k, v in cfg.items() if v is not None},  # type: ignore[arg-type]
+    )
+    return DartRuntime(engine, config)
+
+
+def describe_engine(engine: object) -> dict[str, str]:
+    cfg = getattr(engine, "config", ModelConfig(model_id="unknown"))
+    return {
+        "class": type(engine).__name__,
+        "model_id": getattr(engine, "model_id", cfg.model_id),
+        "fingerprint": cfg.fingerprint(),
+    }
