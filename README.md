@@ -181,6 +181,7 @@ src/dart/
   client/                    SDK and pacers
   eval/                      Kill-test and paper suites
 docs/                        Architecture, protocol, mesh, adapters
+paper/                       arXiv-style preprint (LaTeX → PDF)
 tests/                       pytest
 ```
 
@@ -204,8 +205,10 @@ from dart.client import DartClient
 | [Mesh](docs/mesh.md) | Pin, handover, routing order |
 | [Waiting plugin](docs/vllm-plugin.md) | In-process `waiting` + pinned blocks |
 | [Limitations](docs/limitations.md) | HTTP admission, prefix-cache eviction, scope |
+| [Paper (PDF)](paper/dart_idd.pdf) | arXiv-style preprint — Aditya Raj |
 
 ```bash
+cd paper && make          # latexmk -pdf dart_idd.tex
 pytest -q
 ```
 

@@ -1,0 +1,295 @@
+\pdfoutput=1
+\documentclass{article}
+
+\usepackage{arxiv}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{microtype}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+  pdftitle={DART: Demand-Addressed Runtime Tokens for Interest-Driven Decode},
+  pdfauthor={Aditya Raj},
+  pdfkeywords={LLM serving, interest-driven decode, named continuations}
+}
+
+\title{DART: Demand-Addressed Runtime Tokens\\for Interest-Driven Decode}
+\author{Aditya Raj\\Independent Researcher}
+\date{September 2026}
+\renewcommand{\shorttitle}{DART: Interest-Driven Decode}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Autoregressive LLM serving still treats decode as a push problem: the engine generates as fast as the GPU allows, then a byte pipe tries to deliver.
+A token with no consumer credit is a wasted residual-stream step---energy, KV pages, and batch slots spent encoding a segment nobody asked to absorb.
+Andes noticed that humans read slower than GPUs generate, then still generated and buffered.
+This paper inverts the stack.
+\emph{Interest-Driven Decode} (IDD) makes an outstanding Interest the only thing that may run a decode kernel.
+DART (Demand-Addressed Runtime Tokens) is the continuation runtime that implements IDD: named objects addressed by
+\texttt{/cip/<model-hash>/<kv-root>/tokens/seg/<i>}, HMAC leases, AIMD congestion control over a token window~$W$, a content-addressed store, pinned KV by Merkle \texttt{kv\_root}, and Interest routing (CAS, then pin holder, then cheapest node plus handover).
+The kernel remains vLLM, llama.cpp, or an in-process Hugging Face model.
+On the in-repository paper suite, a 30\,tok/s reading pacer cuts generated tokens 52\% and KV high-water 43\% versus push, Andes captures only 68\% of that win and still holds unread inventory, grammar jump-forward is one kernel versus 36 under logit masking, a FileCAS peer answers with zero engine launches, and an in-process waiting plugin admits once while HTTP adapters re-enter admission.
+DART is a control plane, not a GPU fleet.
+\end{abstract}
+
+\keywords{LLM serving, interest-driven decode, named continuations, congestion control, KV cache}
+
+\section{Introduction}
+
+Today's serving stacks maximize occupancy~\citep{kwon2023vllm,yu2022orca,agrawal2024sarathi}.
+The scheduler packs sequences.
+The network is a pipe.
+The client is a sink.
+Prefill/decode disaggregation~\citep{zhong2024distserve,patel2024splitwise} and KV-centric fabrics~\citep{qin2024mooncake,lmcache2024} move the residual stream; they do not ask whether it should run.
+
+That question matters.
+Autoregression is the expensive encoder.
+If the compositor, TTS mouth, or JSON parser cannot absorb the next segment, encoding it is waste.
+Andes~\citep{liu2024andes} couples a watermark pause to generation so a human reader is not flooded.
+It still generates into a buffer.
+The inventory of unread tokens is the tell.
+
+\textbf{Interest-Driven Decode} inverts the default:
+\begin{quote}
+Outstanding Interests are the only thing that may run a decode kernel.
+\end{quote}
+Zero Interests means zero decode.
+A cache hit never touches the kernel.
+Changing machines is not live-migration of an HTTP request; it is a different producer answering the next named Interest.
+
+\textbf{DART} (Demand-Addressed Runtime Tokens) is the runtime that makes that invariant true in front of an existing engine.
+After prefill it publishes a capability---model fingerprint, Merkle \texttt{kv\_root}, anti-amplification lease---not a process snapshot.
+Consumers issue Interests for a token window~$W$.
+The scheduler \emph{is} the congestion controller.
+Named Data is immutable and cacheable; a second process with FileCAS can answer without a GPU.
+
+This paper is the system that is implemented, not a fleet we did not build.
+HTTP adapters to vLLM and llama.cpp already sit on the same CIP.
+They re-enter admission.
+An in-process waiting plugin parks the request in \texttt{waiting} with pinned blocks when $W{=}0$.
+Evaluation uses the in-repo paper suite (\texttt{dart experiment --suite paper}) on a synthetic producer with real KV-extent accounting, plus mesh, CAS-peer, grammar, and waiting-plugin ablations.
+
+\paragraph{Contributions.}
+(1)~IDD as a primitive: credit-gated decode on named continuations.
+(2)~CIP, leases, and AIMD over tokens, not bytes.
+(3)~CAS $\rightarrow$ pin $\rightarrow$ cheapest-plus-handover routing without re-prefill.
+(4)~An Andes-complete kill test and honest limits of the HTTP path.
+
+\section{Related work}
+
+\paragraph{Occupancy serving.}
+Orca~\citep{yu2022orca} and vLLM~\citep{kwon2023vllm} made continuous batching and paged KV the default.
+Sarathi-Serve~\citep{agrawal2024sarathi} splits chunks to hide prefill bubbles.
+FlashAttention~\citep{dao2022flashattention} and TPU serving~\citep{pope2023efficiently} made the kernel cheaper; they did not change \emph{whether} it may run.
+
+\paragraph{Disaggregation and KV movement.}
+DistServe~\citep{zhong2024distserve} and Splitwise~\citep{patel2024splitwise} split prefill from decode.
+Mooncake~\citep{qin2024mooncake}, CacheGen/LMCache~\citep{lmcache2024}, Llumnix~\citep{sun2024llumnix}, and NIXL-style RDMA move KV between machines.
+DART reuses those movers as connectors.
+Handover is triggered by an Interest with a new locator, not by a control plane rescheduling a request.
+
+\paragraph{QoE pause.}
+Andes~\citep{liu2024andes} pauses generation against a display watermark.
+If that pause captured $\ge 90\%$ of IDD's generated-token win versus push, CIP would be an Andes patch (kill criterion~1).
+It does not: Andes still holds inventory; IDD does not generate it.
+
+\paragraph{Named data and media.}
+NDN~\citep{jacobson2009ndn} named immutable objects; an Interest was not a GPU capability.
+MOQT~\citep{ietf-moqt} maps live media onto QUIC objects.
+A future profile can map CIP Data onto MOQ; it must not become the decode authorizer.
+SGLang~\citep{zheng2024sglang} and XGrammar~\citep{dong2024xgrammar} jump structured spans inside one process.
+DART names the span so a peer can cache it.
+
+\section{Interest-Driven Decode}
+
+A live generation is an address space, not a socket.
+
+\begin{equation}
+\texttt{/cip/}\langle h_{\mathrm{model}}\rangle\texttt{/}\langle \mathrm{kv\_root}\rangle\texttt{/tokens/seg/}\langle i\rangle
+\end{equation}
+
+Immutable Data is keyed by $(h_{\mathrm{model}}, \mathrm{kv\_root}, \mathrm{kind}, i)$ and never overwritten.
+The \texttt{kv\_root} in the name is the prefix \emph{before} the segment; the body carries the child root.
+The mutable cursor is a signed \texttt{ContinuationLease}: window cap, decode quota, expiry, startup credit.
+
+An Interest is a compute capability: name, token window $W$, lifetime $T$, locator, HMAC lease.
+On a CAS hit the producer returns Data and does not call the engine.
+Otherwise it grants $\min(W, \mathrm{cwnd})$ credits and may decode at most that many tokens.
+On lifetime expiry it stops, pins KV, and discards speculative draft.
+A Nack names the refusal (\texttt{no\_credit}, \texttt{no\_model}, \texttt{busy}, \texttt{expired}, \texttt{amplification}, \texttt{done}).
+
+Disconnect (SSE cancel, WebSocket close, \texttt{DELETE}) zeroes credits.
+That is how backpressure reaches the kernel, which stock vLLM SSE does not.
+
+\section{DART}
+
+\subsection{Control loop}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=5pt, text width=2.6cm},
+  arr/.style={-{Latex}, thick}
+]
+\node[box] (c) {Consumer\\pacer};
+\node[box, right=1.1cm of c] (r) {DART\\runtime};
+\node[box, right=1.1cm of r] (e) {Engine};
+\draw[arr] (c) -- node[above,font=\footnotesize] {open} (r);
+\draw[arr] (r) -- node[above,font=\footnotesize] {prefill} (e);
+\draw[arr] ([yshift=-10pt]e.west) -- node[below,font=\footnotesize] {lease, $kv$} ([yshift=-10pt]r.east);
+\draw[arr] ([yshift=-10pt]r.west) -- node[below,font=\footnotesize] {capability} ([yshift=-10pt]c.east);
+\node[font=\footnotesize, below=0.55cm of r] (i) {Interest$(W)$ $\rightarrow$ CAS / pin / decode$\le W$ $\rightarrow$ Data};
+\end{tikzpicture}
+\caption{Prefill once. Subsequent work is credited Interests against a named continuation.}
+\label{fig:loop}
+\end{figure}
+
+Figure~\ref{fig:loop} is the implemented loop.
+Clients (compositor, TTS, JSON parser, tool runtime) estimate a receive window and emit Interests.
+Pacers in the SDK: \texttt{DrainPacer} (API pull), \texttt{ReadingPacer} (default 30\,tok/s), \texttt{TtsPacer}, \texttt{JsonNeedPacer}.
+
+\subsection{Congestion control is the scheduler}
+
+State per continuation: $\mathrm{cwnd}$, credits, in-flight, $\mathrm{ssthresh}$, RTT EWMA.
+Invariant: $\mathrm{credits}+\mathrm{in\textrm{-}flight}\le \min(\mathrm{cwnd}, W_{\max}^{\mathrm{lease}}, W_{\max})$.
+Slow-start then AIMD on ACK (the next Interest).
+Timeout halves the window.
+Speculative $K=\mathrm{clamp}(0,\mathrm{round}(\mathrm{cwnd}\cdot \mathrm{RTT}/t_{\mathrm{decode}}-\mathrm{cwnd}), K_{\max})$ is exported as a TCP-style prefetch \emph{signal}.
+v1 does not run uncredited residual-stream steps: that would violate IDD, and HTTP adapters cannot roll back a draft.
+
+Credit-ready continuations pack up to \texttt{max\_num\_seqs}.
+$W{=}0$ does not enter the batch.
+If the ready set is too small, DART does not mint unread tokens to fill the GPU; a cluster should fill with other paid work (prefill, embeddings, offline batch).
+
+\subsection{Pin, connector, mesh}
+
+\texttt{PinnedKVPool} indexes engine state by \texttt{kv\_root}.
+Sleep does not drop identity; expiry does.
+\texttt{adopt} installs named KV and skips prefill.
+Connectors expose \texttt{put}/\texttt{get}/\texttt{transfer}: memory, file, LMCache-shaped, NIXL-shaped.
+Without those libraries, transfer is memcpy and metrics report \texttt{rdma\_available=false}.
+
+\texttt{InterestRouter} order: (1)~CAS already has the name; (2)~live pin holder, even if expensive; (3)~live continuation; (4)~cheapest node, NIXL-shaped pull, adopt, decode.
+\texttt{dart mesh --nodes 3} is the local form.
+
+\subsection{Engines}
+
+DART never owns the residual stream.
+\texttt{SyntheticEngine} is the kill-test producer (hash-based tokens, real layer$\times$block KV extents).
+\texttt{VLLMChatEngine} and \texttt{LlamaCppEngine} turn each credited Interest into \texttt{max\_tokens}${}={}$W / \texttt{n\_predict}${}={}$W.
+\texttt{HuggingFaceEngine} runs in-process weights (demo: SmolLM2-135M-Instruct).
+\texttt{InProcessVLLMEngine} admits once, then parks in \texttt{waiting} with pinned blocks when $W{=}0$.
+\texttt{CacheOnlyEngine} never decodes.
+
+OpenAI clients keep working: \texttt{POST /v1/chat/completions} with \texttt{X-Dart-Pace} / \texttt{X-Dart-Window}.
+Without pace, the facade uses drain credit as SSE is pulled---already stronger than stock vLLM, which keeps the kernel running after the gateway stops reading.
+
+\section{Evaluation}
+
+All numbers in this section are from \texttt{dart experiment --suite paper} (\texttt{--seconds 1.0 --max-tokens 96}) on the synthetic producer unless noted.
+Paper tables report \emph{engine} kernel launches (successful generate/completion), not only wrapper ticks.
+
+\subsection{Kill test: push versus credit}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Push drain versus IDD at 30\,tok/s. Unconsumed tokens are generated minus consumed. Survive: generated $<0.9\times$ push or lower KV high-water, with consumption $>0$.}
+\label{tab:kill}
+\begin{tabular}{lrrrrr}
+\toprule
+Arm & Gen. & Cons. & Uncons. & Eng.\ launches & KV high-water \\
+\midrule
+Push (drain) & 96 & 96 & 0 & 6 & 1.84\,MB \\
+IDD 30\,tok/s & 46 & 46 & 0 & 31 & 1.05\,MB \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:kill} is the inversion test.
+IDD generates 52\% fewer tokens and cuts KV high-water 43\%.
+It launches \emph{more} kernels (31 vs.\ 6) because each Interest is a short $W$, not one long push.
+The engine still only runs when credited; launch count is not the objective.
+The kill test survives.
+
+\subsection{Andes-complete}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Andes watermark pause versus IDD refuse-to-decode. Capture is Andes' generated-token win over push divided by IDD's. Kill if capture $\ge 90\%$ and Andes inventory stays at the watermark.}
+\label{tab:andes}
+\begin{tabular}{lrrrr}
+\toprule
+Arm & Generated & Eng.\ launches & Inventory HW & Capture of IDD \\
+\midrule
+Push & 96 & 6 & --- & --- \\
+Andes ($W{=}32$) & 62 & 4 & 32 & 0.68 \\
+IDD 30\,tok/s & 46 & 31 & 0 & 1.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:andes}: Andes captures 68\% of IDD's win and holds 32 unread tokens.
+IDD inventory high-water is 0.
+The Andes-complete kill does \emph{not} fire.
+CIP is not an Andes patch.
+
+\subsection{Grammar, CAS peer, mesh, waiting}
+
+Grammar jump-forward emits one named Data in one kernel.
+Logit masking pays one kernel per constrained token: 36 launches versus 1 (ratio 36) on the \texttt{tool-args} span.
+
+A producer writes FileCAS; a second process with \texttt{CacheOnlyEngine} satisfies the same CIP name with \texttt{cache\_hit=true} and 0 engine launches.
+That is the not-Andes defense: the continuation object is the cache unit.
+
+Three-node in-process mesh with a NIXL-shaped connector: first Interest pins on node-0; repeat is CAS (kernel vector unchanged); next segment stays on the pin holder even though node-2 is cheaper; after \texttt{release\_for\_handover}, node-2 adopts without a new prefill (\texttt{prefills\_skipped}) and decodes.
+
+Waiting plugin versus HTTP fake-vLLM: idle $W{=}0$ sits in \texttt{waiting} with 8 pinned blocks, 1 admission, 0 decode forwards.
+Two Interests: 2 decode forwards, still 1 admission, 0 re-entries.
+Pinned blocks survive memory pressure that evicts an unpinned victim.
+The HTTP path issues 2 generate POSTs (admission twice).
+
+\section{Limitations}
+
+DART is not a finished GPU fleet that replaces vLLM.
+HTTP \texttt{VLLMChatEngine} / \texttt{LlamaCppEngine} re-enter admission; a load spike can 503 a live continuation; prefix cache may evict and force re-prefill.
+IDD still did not decode without credit; it may pay a re-prefill pinned blocks would have avoided.
+Measure \texttt{GET /v1/engine}: local POSTs versus the engine process forward counter.
+
+Real NIXL RDMA and LMCache GPU pages are optional.
+Tests use memcpy.
+\texttt{CreditGatedScheduler} binds to a live GPU vLLM process only when the \texttt{vllm} package is present and \texttt{DART\_VLLM\_INPROCESS=1}.
+
+If credit gating dropped consumed tok/J because the GPU went idle, fill-from-other-demand must be enabled before declaring death (kill criterion~2).
+Per-token names are forbidden; segments stay 8--32 tokens (kill criterion~3).
+
+\section{Conclusion}
+
+Serving should not encode segments nobody has credit to consume.
+DART makes that a protocol: named continuations, token windows, CAS then pin then decode, handover as the next Interest from a new locator.
+The kernels stay the kernels.
+The scheduler is a congestion controller.
+The paper suite is in the repository; the Andes-complete kill did not fire; the HTTP honesty clause remains.
+
+{\small
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+}
+
+\end{document}
