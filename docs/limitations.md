@@ -10,7 +10,7 @@ DART’s claim is the inversion: **outstanding Interests are the only thing that
 
 **What is actually next** (engineering, not the idea):
 
-- Binding `DartCreditScheduler` into a live GPU vLLM process (`DART_VLLM_INPROCESS=1` plus the `vllm` package). The waiting-queue plugin itself is the `--engine vllm` default. See [`vllm-plugin.md`](./vllm-plugin.md).
+- Optional: subclassing a live vLLM V1 `Scheduler` in someone else’s `vllm serve` process. In-process `--engine vllm` already plugs `VLLMModelRunner` into `_kernel` so pinned blocks are that engine’s GPU pages. See [`vllm-plugin.md`](./vllm-plugin.md).
 - A NIC-backed NIXL agent pair. Page transfer and `adopt` (zero `engine.prefill`) are in-repo; `rdma_available` is true only when `nixl` completes an RDMA post.
 
 Named KV handover, multi-node Interest routing, and in-process waiting+pin are implemented. Do not promise a fleet you did not build, and do not hide the adapters you did.

@@ -131,7 +131,7 @@ Consumer                         DART                              Engine
 |---|---|
 | `--engine synthetic` | Deterministic CPU producer with real KV-extent accounting. Default for tests. Word-list output, not a language model. |
 | `--engine hf` | In-process Hugging Face model. Demo weights: **HuggingFaceTB/SmolLM2-135M-Instruct** (135M, CPU). |
-| `--engine vllm` | Production: in-process waiting+pin (`InProcessVLLMEngine`). Admit once; `W=0` parks in `waiting` with pinned KV. HTTP only if `DART_VLLM_URL` is set. |
+| `--engine vllm` | Production: in-process waiting+pin. Real `vllm` checkpoint → live GPU runner (`add_request` once; idle does not abort). HTTP only if `DART_VLLM_URL` is set. |
 | `--engine vllm-inprocess` | Same as `--engine vllm` without a URL: admit once, park in `waiting` with pinned KV when `W=0`. |
 | `--engine vllm-http` | HTTP adapter to a live vLLM server. Each Interest POSTs `max_tokens=W` and re-enters admission. |
 | `--engine llamacpp` | HTTP adapter to llama.cpp (`DART_LLAMACPP_URL`). |
@@ -230,6 +230,6 @@ pytest -q
 
 ## Status
 
-DART is Apache-2.0. `--engine vllm` admits once and parks in `waiting` with pinned KV. `--engine vllm-http` re-enters admission. Handover moves NIXL/LMCache pages and adopts `kv_root` with zero `engine.prefill`. SDK pacers (TTS, IntersectionObserver, JSON, tool-call) are the credit source. Rotate `DART_SECRET` / `DART_SECRET_PREV`; FileCAS and pins persist.
+DART is Apache-2.0. `--engine vllm` admits once and parks in `waiting` with pinned KV — a live `vllm` runner makes those blocks GPU pages. `--engine vllm-http` re-enters admission. Handover moves NIXL/LMCache pages and adopts `kv_root` with zero `engine.prefill`. SDK pacers (TTS, IntersectionObserver, JSON, tool-call) are the credit source. Rotate `DART_SECRET` / `DART_SECRET_PREV`; FileCAS and pins persist.
 
 See [limitations](docs/limitations.md) for what this repository claims and what it does not.

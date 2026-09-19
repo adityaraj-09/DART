@@ -161,6 +161,98 @@ def test_factory_vllm_defaults_to_inprocess(monkeypatch: pytest.MonkeyPatch) -> 
     assert isinstance(eng, InProcessVLLMEngine)
 
 
+def test_default_kernel_is_synthetic_for_paper_model() -> None:
+    eng = InProcessVLLMEngine()
+    assert type(eng._kernel).__name__ == "SyntheticEngine"
+    assert eng.backend == "inprocess"
+
+
+def test_use_live_runner_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dart.engine.vllm_runner import use_live_vllm_runner
+
+    monkeypatch.delenv("DART_VLLM_INPROCESS", raising=False)
+    assert use_live_vllm_runner("dart-synth-8b") is False
+    monkeypatch.setenv("DART_VLLM_INPROCESS", "0")
+    assert use_live_vllm_runner("meta-llama/Llama-3.1-8B-Instruct") is False
+
+
+class _FakeVLLMEngine:
+    def __init__(self) -> None:
+        self.adds = 0
+        self.steps = 0
+        self.aborted: list[str] = []
+        self._reqs: dict[str, dict[str, object]] = {}
+
+    def add_request(self, rid: str, prompt: object, params: object) -> None:
+        self.adds += 1
+        cap = int(getattr(params, "max_tokens", 32) or 32)
+        self._reqs[rid] = {"ids": [], "text": "", "finished": False, "max": cap, "prompt": prompt}
+
+    def step(self) -> list[object]:
+        from types import SimpleNamespace
+
+        self.steps += 1
+        out: list[object] = []
+        for rid, rec in self._reqs.items():
+            if rec["finished"]:
+                continue
+            rec["ids"].append(200 + len(rec["ids"]))  # type: ignore[union-attr]
+            rec["text"] = str(rec["text"]) + "tok "
+            if len(rec["ids"]) >= int(rec["max"]):  # type: ignore[arg-type]
+                rec["finished"] = True
+            out.append(
+                SimpleNamespace(
+                    request_id=rid,
+                    finished=rec["finished"],
+                    outputs=[SimpleNamespace(token_ids=list(rec["ids"]), text=rec["text"])],  # type: ignore[arg-type]
+                )
+            )
+        return out
+
+    def has_unfinished_requests(self) -> bool:
+        return any(not r["finished"] for r in self._reqs.values())
+
+    def abort_request(self, rid: str) -> None:
+        self.aborted.append(rid)
+        if rid in self._reqs:
+            self._reqs[rid]["finished"] = True
+
+
+async def test_live_vllm_kernel_keeps_unfinished_request() -> None:
+    from dart.engine.vllm_runner import VLLMModelRunner
+
+    fake = _FakeVLLMEngine()
+    kernel = VLLMModelRunner("meta-llama/unit", engine=fake)
+    eng = InProcessVLLMEngine(model_id="meta-llama/unit", kernel=kernel)
+    rt = DartRuntime(eng, RuntimeConfig(poll_interval_s=0.001, decode_quota=32, segment_size=8))
+    await rt.start()
+    handle = await rt.open("live pages", max_tokens=32)
+    assert fake.adds == 1
+    prefill_steps = fake.steps
+    await asyncio.sleep(0.03)
+    assert fake.steps == prefill_steps  # W=0: do not step the live request
+    assert not fake.aborted
+    assert eng.scheduler_snapshot()["admissions"] == 1
+    assert eng.backend == "vllm-gpu"
+    name = CipName.tokens(handle.model_hash, handle.kv_root, 0).render()
+    d0 = await rt.interest(
+        Interest(name=name, window=8, lifetime_ms=2000, lease=handle.lease), lease=handle.lease
+    )
+    assert d0.token_count() > 0
+    after_page = fake.steps
+    await asyncio.sleep(0.03)
+    assert fake.steps == after_page
+    name1 = CipName.tokens(handle.model_hash, d0.kv_root, 1).render()
+    await rt.interest(
+        Interest(name=name1, window=8, lifetime_ms=2000, lease=handle.lease), lease=handle.lease
+    )
+    assert fake.adds == 1  # still one vLLM request
+    assert eng.scheduler_snapshot()["admissions"] == 1
+    await rt.close(handle.cont_id)
+    assert fake.aborted
+    await rt.aclose()
+
+
 def test_factory_vllm_http_when_url(monkeypatch: pytest.MonkeyPatch) -> None:
     from dart.engine.vllm import VLLMChatEngine
     from dart.factory import build_engine

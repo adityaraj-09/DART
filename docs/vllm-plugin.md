@@ -13,11 +13,14 @@ That is why it exists: not to invent credit-gated decode (DART already refuses `
 
 ## What runs in tests / CPU
 
-`CreditGatedScheduler` (`src/dart/engine/vllm_sched.py`) plus `InProcessVLLMEngine` (`src/dart/engine/vllm_inprocess.py`). The residual stream is `SyntheticEngine` unless `vllm` is installed **and** `DART_VLLM_INPROCESS=1`.
+`CreditGatedScheduler` plus `InProcessVLLMEngine`. The Interest loop is CIP, not HTTP.
+
+- Paper model `dart-synth-8b`: residual stream is `SyntheticEngine`.
+- Real checkpoint + `vllm` installed (or `DART_VLLM_INPROCESS=1`): `_kernel` is `VLLMModelRunner`. Prefill `add_request`s once and `step`s until paged KV is on the GPU. Idle `W=0` does **not** `abort_request` — those blocks stay vLLM’s. The next Interest `step`s at most `W` new tokens.
 
 ```bash
-dart serve --engine vllm
-dart serve --engine vllm-inprocess
+dart serve --engine vllm --model meta-llama/Llama-3.1-8B-Instruct
+DART_VLLM_INPROCESS=1 dart serve --engine vllm --model "$DART_MODEL"
 dart experiment --suite waiting
 ```
 

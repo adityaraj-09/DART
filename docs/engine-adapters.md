@@ -27,7 +27,7 @@ This is not a protocol toy: the scheduler, CAS, leases, and CC are the same obje
 
 `--engine vllm` (and `vllm-inprocess`) admits once, then parks the request in `waiting` with pinned KV when `W=0`. The next Interest resumes; it does not POST `max_tokens=W` and does not re-enter admission.
 
-In-process `vllm.AsyncLLM` is optional behind `DART_VLLM_INPROCESS=1` when the `vllm` package is installed. Tests use `CreditGatedScheduler` + `SyntheticEngine`. CIP does not change.
+`_kernel` is a live `VLLMModelRunner` when the `vllm` package can load the checkpoint (or `DART_VLLM_INPROCESS=1`). Waiting/pinned blocks are that engine’s GPU pages: one unfinished `add_request`, no HTTP. Tests and `dart-synth-8b` keep `SyntheticEngine`. CIP does not change.
 
 ```bash
 dart serve --engine vllm --model meta-llama/Llama-3.1-8B-Instruct

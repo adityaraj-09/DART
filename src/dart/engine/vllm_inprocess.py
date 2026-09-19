@@ -4,8 +4,11 @@
 (HTTP adapter). Production path: admit once, park in ``waiting`` with pinned
 KV when ``W=0``. ``--engine vllm-http`` is the re-admission POST path.
 
-The residual stream is SyntheticEngine unless a real ``vllm`` package is
-importable and ``DART_VLLM_INPROCESS=1`` (GPU). Tests never require that.
+The Interest loop never HTTP POSTs. A live ``vllm`` model runner is
+``_kernel`` when the package is present and the model is a real checkpoint
+(or ``DART_VLLM_INPROCESS=1``). Then waiting/pinned blocks are vLLM's GPU
+pages (unfinished ``add_request``). Tests and ``dart-synth-8b`` keep
+``SyntheticEngine`` as the residual stream.
 """
 
 from __future__ import annotations
@@ -43,11 +46,11 @@ class InProcessVLLMEngine:
         config: ModelConfig | None = None,
         step_latency_s: float = 0.0,
         num_gpu_blocks: int = 2048,
-        kernel: SyntheticEngine | None = None,
+        kernel: Any | None = None,
     ) -> None:
         self.model_id = model_id
         self.config = config or ModelConfig(model_id=model_id, tokenizer_hash="vllm-inprocess")
-        self._kernel = kernel or SyntheticEngine(
+        self._kernel = kernel if kernel is not None else _default_kernel(
             model_id, seed=seed, config=self.config, step_latency_s=step_latency_s
         )
         nbytes = bytes_per_extent(
@@ -60,13 +63,17 @@ class InProcessVLLMEngine:
         self.prefills = 0
         self.supports_rollback = True
         self.vllm_installed = _vllm_importable()
-        self.backend = "vllm" if self.vllm_installed and os.environ.get("DART_VLLM_INPROCESS") else "inprocess"
+        live = type(self._kernel).__name__ == "VLLMModelRunner"
+        self.backend = "vllm-gpu" if live else (
+            "vllm" if self.vllm_installed and os.environ.get("DART_VLLM_INPROCESS") else "inprocess"
+        )
         self.pause_keeps = 0
 
     def scheduler_snapshot(self) -> dict[str, Any]:
         snap = self.sched.snapshot()
         snap["backend"] = self.backend
         snap["vllm_installed"] = self.vllm_installed
+        snap["kernel"] = type(self._kernel).__name__
         return snap
 
     async def scrape_engine_metrics(self) -> dict[str, int]:
@@ -177,6 +184,9 @@ class InProcessVLLMEngine:
         if not rid:
             return
         self.sched.abort(rid)
+        fn = getattr(self._kernel, "abort_generation", None)
+        if callable(fn):
+            await fn(state)
 
     def apply_memory_pressure(self, need_blocks: int) -> int:
         return self.sched.blocks.evict_unpinned(need_blocks)
@@ -203,3 +213,22 @@ class InProcessVLLMEngine:
                 count_prefill=False,
             )
         return rid
+
+
+def _default_kernel(
+    model_id: str,
+    *,
+    seed: int,
+    config: ModelConfig,
+    step_latency_s: float,
+) -> Any:
+    from dart.engine.vllm_runner import use_live_vllm_runner
+
+    if use_live_vllm_runner(model_id):
+        try:
+            from dart.engine.vllm_runner import VLLMModelRunner
+
+            return VLLMModelRunner(model_id, config=config)
+        except Exception:
+            pass
+    return SyntheticEngine(model_id, seed=seed, config=config, step_latency_s=step_latency_s)
