@@ -67,6 +67,7 @@ class Continuation:
     last_skip_at: float = 0.0
     adopted: bool = False
     handed_over: bool = False
+    token_listeners: list[asyncio.Queue[str]] = field(default_factory=list)
 
 
 class ContinuationHandle:
@@ -126,11 +127,13 @@ class DartRuntime:
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
         self._wakeup = asyncio.Event()
+        self._loop: asyncio.AbstractEventLoop | None = None
         self.started_at = time.monotonic()
 
     async def start(self) -> None:
         if self._task is None:
             self._stopped.clear()
+            self._loop = asyncio.get_running_loop()
             self._task = asyncio.create_task(self._scheduler_loop(), name="dart-scheduler")
 
     async def aclose(self) -> None:
@@ -679,6 +682,40 @@ class DartRuntime:
         batch = ready[: self.config.max_num_seqs]
         await asyncio.gather(*(self._decode_one(c) for c in batch))
 
+    def _emit_tokens(self, cont: Continuation, text: str) -> None:
+        if not text or not cont.token_listeners:
+            return
+
+        def push() -> None:
+            for q in list(cont.token_listeners):
+                try:
+                    q.put_nowait(text)
+                except asyncio.QueueFull:
+                    pass
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            loop = self._loop
+            if loop is not None:
+                loop.call_soon_threadsafe(push)
+            return
+        push()
+
+    async def _run_decode(self, cont: Continuation, want: int, grammar: str | None) -> Any:
+        stream = getattr(self.engine, "decode_stream", None)
+        if stream is not None:
+            return await stream(
+                cont.state,
+                want,
+                grammar_span=grammar,
+                on_text=lambda piece: self._emit_tokens(cont, piece),
+            )
+        result = await self.engine.decode(cont.state, want, grammar_span=grammar)
+        if result.text:
+            self._emit_tokens(cont, result.text)
+        return result
+
     async def _decode_one(self, cont: Continuation) -> None:
         async with cont.lock:
             if cont.done or cont.closed or cont.handed_over or (cont.cc.credits <= 0 and not cont.grammar_span):
@@ -700,7 +737,7 @@ class DartRuntime:
             want = n
 
         try:
-            result = await self.engine.decode(cont.state, want, grammar_span=grammar)
+            result = await self._run_decode(cont, want, grammar)
         except Exception:
             logger.exception("engine decode failed for %s", cont.id[:8])
             async with cont.lock:

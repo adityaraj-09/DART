@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from threading import Thread
 from typing import Any
 
 from dart.cip.merkle import bytes_per_extent, extent_digest, root_from_extents
@@ -143,6 +144,90 @@ class HuggingFaceEngine:
         stopped = bool(new) and int(new[-1]) == int(tok.eos_token_id)
         return [int(x) for x in new], text, stopped
 
+    def _generate_stream_sync(
+        self,
+        ids: list[int],
+        n: int,
+        emit: Callable[[str], None],
+    ) -> tuple[list[int], str, bool]:
+        self._ensure_loaded()
+        if self._generate_fn is not None:
+            new_ids, text, stopped = self._generate_fn(ids, n)
+            if text:
+                emit(text)
+            return new_ids, text, stopped
+        from transformers import TextIteratorStreamer
+
+        torch = self._torch
+        tok = self._tok
+        model = self._model
+        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
+        input_ids = torch.tensor([ids], dtype=torch.long, device=self.device)
+        attn = torch.ones_like(input_ids)
+        holder: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                with torch.inference_mode():
+                    holder["out"] = model.generate(
+                        input_ids,
+                        attention_mask=attn,
+                        max_new_tokens=max(1, n),
+                        do_sample=False,
+                        pad_token_id=tok.pad_token_id,
+                        eos_token_id=tok.eos_token_id,
+                        use_cache=True,
+                        streamer=streamer,
+                    )
+            except Exception as exc:
+                holder["err"] = exc
+                streamer.end()
+
+        worker = Thread(target=run, daemon=True)
+        worker.start()
+        for piece in streamer:
+            if piece:
+                emit(piece)
+        worker.join()
+        if "err" in holder:
+            raise holder["err"]
+        out = holder["out"]
+        new = out[0, input_ids.shape[1] :].tolist()
+        text = tok.decode(new, skip_special_tokens=True)
+        stopped = bool(new) and int(new[-1]) == int(tok.eos_token_id)
+        return [int(x) for x in new], text, stopped
+
+    def _apply_decode(
+        self,
+        state: EngineState,
+        ids: list[int],
+        new_ids: list[int],
+        text: str,
+        stopped: bool,
+        *,
+        grammar_span: str | None,
+    ) -> DecodeResult:
+        predicted = max(1, len(new_ids) or len(text.split()) or 1)
+        self.stats.record_generate(predicted=predicted, prompt_tokens=len(ids), prefix_hit=True)
+        self.kernel_launches = self.stats.kernel_launches
+        self.decode_tokens = self.stats.tokens_predicted
+        state.assistant_text += text
+        if not new_ids:
+            new_ids = list(range(state.pos, state.pos + predicted))
+        state.output_ids.extend(new_ids)
+        state.pos += len(new_ids)
+        state.kv_extents = self._opaque_extents(state)
+        state.kv_root = root_from_extents(state.kv_extents)
+        state.stopped = stopped or (not text and not new_ids)
+        return DecodeResult(
+            token_ids=new_ids,
+            text=text,
+            extents=state.kv_extents,
+            kv_root=state.kv_root,
+            stopped=state.stopped,
+            grammar_span=bool(grammar_span),
+        )
+
     async def prefill(self, prompt: Prompt, state: EngineState) -> PrefillResult:
         ids = await asyncio.to_thread(self._ids_from_prompt, prompt)
         text = prompt.as_text()
@@ -176,23 +261,31 @@ class HuggingFaceEngine:
             new_ids, text, stopped = await asyncio.to_thread(self._generate_sync, ids, window)
         except Exception as exc:
             raise EngineError(f"HuggingFace decode failed: {exc}") from exc
-        predicted = max(1, len(new_ids) or len(text.split()) or 1)
-        self.stats.record_generate(predicted=predicted, prompt_tokens=len(ids), prefix_hit=True)
-        self.kernel_launches = self.stats.kernel_launches
-        self.decode_tokens = self.stats.tokens_predicted
-        state.assistant_text += text
-        if not new_ids:
-            new_ids = list(range(state.pos, state.pos + predicted))
-        state.output_ids.extend(new_ids)
-        state.pos += len(new_ids)
-        state.kv_extents = self._opaque_extents(state)
-        state.kv_root = root_from_extents(state.kv_extents)
-        state.stopped = stopped or (not text and not new_ids)
-        return DecodeResult(
-            token_ids=new_ids,
-            text=text,
-            extents=state.kv_extents,
-            kv_root=state.kv_root,
-            stopped=state.stopped,
-            grammar_span=bool(grammar_span),
-        )
+        return self._apply_decode(state, ids, new_ids, text, stopped, grammar_span=grammar_span)
+
+    async def decode_stream(
+        self,
+        state: EngineState,
+        n: int,
+        *,
+        grammar_span: str | None = None,
+        on_text: Callable[[str], None] | None = None,
+    ) -> DecodeResult:
+        if n <= 0 and not grammar_span:
+            return DecodeResult(
+                token_ids=[],
+                text="",
+                extents=state.kv_extents,
+                kv_root=state.kv_root,
+                kernel_launched=False,
+            )
+        window = max(1, n if not grammar_span else max(n, 32))
+        ids = list(state.all_ids) or [1]
+        emit = on_text or (lambda _s: None)
+        try:
+            new_ids, text, stopped = await asyncio.to_thread(
+                self._generate_stream_sync, ids, window, emit
+            )
+        except Exception as exc:
+            raise EngineError(f"HuggingFace decode failed: {exc}") from exc
+        return self._apply_decode(state, ids, new_ids, text, stopped, grammar_span=grammar_span)

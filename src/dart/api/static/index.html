@@ -263,6 +263,15 @@
       line-height: 1.45;
       white-space: pre-wrap;
     }
+    .page .body.live::after {
+      content: "█";
+      font-size: 0.8em;
+      margin-left: 0.06em;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .page .body.live::after { animation: caret 1s step-end infinite; }
+      @keyframes caret { 50% { visibility: hidden; } }
+    }
     #more-sentinel {
       text-align: center;
       max-width: 40rem;
@@ -600,11 +609,18 @@
       return el;
     }
 
+    function hideScrollInvite() {
+      const el = document.getElementById("more-sentinel");
+      const pad = document.getElementById("scroll-pad");
+      if (el) el.classList.add("hidden");
+      if (pad) pad.classList.add("hidden");
+    }
+
     function updateSentinel() {
       const el = ensureSentinel();
       const pad = document.getElementById("scroll-pad");
       const w = pageSize();
-      if (done || !handle) {
+      if (done || !handle || busy) {
         el.classList.add("hidden");
         if (pad) pad.classList.add("hidden");
         return;
@@ -616,22 +632,63 @@
         `Wheel, swipe, or click “Write the next page”.`;
     }
 
-    function appendPage(data) {
+    function followLivePage() {
+      const card = document.getElementById("page-live");
+      if (!card) return;
+      const root = reader.getBoundingClientRect();
+      const box = card.getBoundingClientRect();
+      if (box.top < root.top + 8) {
+        reader.scrollTop += box.top - root.top - 8;
+      } else if (box.bottom > root.bottom - 12) {
+        reader.scrollTop += box.bottom - root.bottom + 12;
+      }
+    }
+
+    function beginPage() {
       const ph = document.getElementById("placeholder");
       if (ph) ph.remove();
-      const n = data.token_count || (data.token_ids || []).length || 0;
-      shown += n;
       pages += 1;
       const card = document.createElement("article");
       card.className = "page";
+      card.id = "page-live";
       card.dataset.interest = String(pages);
       card.innerHTML =
+        `<div class="folio">${String(pages).padStart(2, "0")}</div>` +
+        `<div class="meta">Page ${pages} · writing</div>` +
+        `<div class="body live"></div>`;
+      hideScrollInvite();
+      const sentinel = document.getElementById("more-sentinel");
+      if (sentinel) reader.insertBefore(card, sentinel);
+      else reader.appendChild(card);
+      card.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return card.querySelector(".body");
+    }
+
+    function finishPage(data) {
+      const n = data.token_count || (data.token_ids || []).length || 0;
+      shown += n;
+      const card = document.getElementById("page-live");
+      if (card) {
+        card.removeAttribute("id");
+        const meta = card.querySelector(".meta");
+        const body = card.querySelector(".body");
+        if (meta) meta.textContent = `Page ${pages} · ${n} words`;
+        if (body) {
+          body.classList.remove("live");
+          if (data.text) body.textContent = data.text;
+        }
+        return;
+      }
+      const article = document.createElement("article");
+      article.className = "page";
+      article.dataset.interest = String(pages);
+      article.innerHTML =
         `<div class="folio">${String(pages).padStart(2, "0")}</div>` +
         `<div class="meta">Page ${pages} · ${n} words</div>` +
         `<div class="body">${escapeHtml(data.text || "")}</div>`;
       const sentinel = document.getElementById("more-sentinel");
-      if (sentinel) reader.insertBefore(card, sentinel);
-      else reader.appendChild(card);
+      if (sentinel) reader.insertBefore(article, sentinel);
+      else reader.appendChild(article);
     }
 
     function escapeHtml(s) {
@@ -651,6 +708,51 @@
       return true;
     }
 
+    async function streamInterest(w, liveBody) {
+      const res = await fetch(`/v1/continuations/${handle.cont_id}/interest`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-Dart-Lease": handle.lease },
+        body: JSON.stringify({ window: w, lifetime_ms: 60000, lease: handle.lease, stream: true }),
+      });
+      const ctype = res.headers.get("content-type") || "";
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || body.message || String(res.status));
+      }
+      if (!res.body || !ctype.includes("event-stream")) {
+        const body = await res.json().catch(() => ({}));
+        if (body.text && liveBody) liveBody.textContent = body.text;
+        return body;
+      }
+      const dec = new TextDecoder();
+      const stream = res.body.getReader();
+      let buf = "";
+      let doneEv = null;
+      while (true) {
+        const chunk = await stream.read();
+        if (chunk.done) break;
+        buf += dec.decode(chunk.value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() || "";
+        for (const block of parts) {
+          const line = block.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          let ev;
+          try { ev = JSON.parse(line.replace(/^data:\s?/, "").trim()); } catch { continue; }
+          if (ev.type === "token" && ev.text) {
+            liveBody.textContent += ev.text;
+            followLivePage();
+          } else if (ev.type === "done") {
+            doneEv = ev;
+          } else if (ev.type === "error") {
+            throw new Error(ev.detail || "stream error");
+          }
+        }
+      }
+      if (!doneEv) throw new Error("stream ended without a page");
+      return doneEv;
+    }
+
     async function askPage() {
       if (busy || done || !handle) return;
       const w = pageSize();
@@ -664,18 +766,30 @@
       setStatus(`Writing page ${n}… about ${w} words.`, "write");
       nowEl.textContent = `Interest #${n} in flight (window ${w}).`;
       renderRail();
+      const liveBody = beginPage();
       let data = null;
       for (let attempt = 0; attempt < 6; attempt++) {
-        const res = await fetch(`/v1/continuations/${handle.cont_id}/interest`, {
-          method: "POST",
-          headers: { "content-type": "application/json", "X-Dart-Lease": handle.lease },
-          body: JSON.stringify({ window: w, lifetime_ms: 60000, lease: handle.lease }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (res.ok) { data = body; break; }
-        const detail = String(body.detail || body.message || res.status);
-        if (res.status === 400 && /expired/i.test(detail) && attempt < 5) continue;
-        setStatus("Could not write that page: " + detail, "idle");
+        try {
+          data = await streamInterest(w, liveBody);
+          if (data) break;
+        } catch (err) {
+          const detail = String(err && err.message ? err.message : err);
+          if (/expired/i.test(detail) && attempt < 5) continue;
+          setStatus("Could not write that page: " + detail, "idle");
+          const live = document.getElementById("page-live");
+          if (live) live.remove();
+          pages = Math.max(0, pages - 1);
+          busy = false;
+          nextBtn.disabled = done;
+          renderRail();
+          return;
+        }
+      }
+      if (!data) {
+        setStatus("Could not write that page.", "idle");
+        const live = document.getElementById("page-live");
+        if (live) live.remove();
+        pages = Math.max(0, pages - 1);
         busy = false;
         nextBtn.disabled = done;
         renderRail();
@@ -689,7 +803,7 @@
           body: JSON.stringify({ consumed: got, lease: handle.lease }),
         }).catch(() => {});
       }
-      appendPage(data);
+      finishPage(data);
       const cap = maxTokens();
       if (data.stopped || (Number.isFinite(cap) && shown >= cap) || got <= 0) {
         done = true;

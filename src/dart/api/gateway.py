@@ -6,6 +6,7 @@ become Interests; they actually stop the decode kernel.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -44,6 +45,7 @@ class InterestBody(BaseModel):
     grammar_span: str | None = None
     lease: str | None = None
     segment: int | None = None
+    stream: bool = False
 
 
 class AckBody(BaseModel):
@@ -244,11 +246,49 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
             cont_id=cont_id,
             lease=lease,
         )
-        try:
+
+        async def _issue() -> Any:
             if router is not None:
                 data, _decision = await router.route(req, lease=lease)
-            else:
-                data = await runtime.interest(req, lease=lease)
+                return data
+            return await runtime.interest(req, lease=lease)
+
+        if body.stream:
+            async def events() -> AsyncIterator[bytes]:
+                tap: asyncio.Queue[str] = asyncio.Queue()
+                cont.token_listeners.append(tap)
+                task = asyncio.create_task(_issue())
+                try:
+                    while not task.done():
+                        try:
+                            piece = await asyncio.wait_for(tap.get(), timeout=0.05)
+                        except TimeoutError:
+                            continue
+                        yield f"data: {json.dumps({'type': 'token', 'text': piece})}\n\n".encode()
+                    while not tap.empty():
+                        piece = tap.get_nowait()
+                        yield f"data: {json.dumps({'type': 'token', 'text': piece})}\n\n".encode()
+                    data = await task
+                    payload = json.loads(data.model_dump_json())
+                    payload["type"] = "done"
+                    payload["token_count"] = data.token_count()
+                    yield f"data: {json.dumps(payload)}\n\n".encode()
+                except (LeaseError, AmplificationError, InterestNack, PinMissError, HandoverError) as exc:
+                    yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n".encode()
+                except DartError as exc:
+                    yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n".encode()
+                finally:
+                    if tap in cont.token_listeners:
+                        cont.token_listeners.remove(tap)
+
+            return StreamingResponse(
+                events(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
+        try:
+            data = await _issue()
         except (LeaseError, AmplificationError, InterestNack, PinMissError, HandoverError) as exc:
             raise HTTPException(400, str(exc)) from exc
         except DartError as exc:
