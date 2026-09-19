@@ -34,8 +34,10 @@ async def test_health_and_index(client: AsyncClient) -> None:
     assert "Interest-Driven Decode" in page.text
     assert "model-label" in page.text
     assert "Scroll here to ask for the next" in page.text
-    assert "Ask for next 30 tokens" in page.text
+    assert "Write the first page" in page.text
+    assert "Write the next page" in page.text
     assert "/v1/continuations" in page.text
+    assert "A normal chat app dumps the whole answer" in page.text
 
 
 async def test_openai_nonstream(client: AsyncClient) -> None:
