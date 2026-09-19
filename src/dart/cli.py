@@ -84,16 +84,16 @@ def _serve(args: argparse.Namespace) -> int:
     from dart.factory import build_runtime
     from dart.api.gateway import create_app
 
-    # Console demo pages are 30-token Interests. Grant a full page in one
-    # decode (w_init / segment_size 32). Paper-suite configs stay at 16.
+    # Console "words per page" is 8–64. Grant a full page in one decode.
+    # Paper-suite configs stay at w_init=16.
     runtime = build_runtime(
         args.engine,
         args.model,
         cas_dir=args.cas_dir,
         connector=args.connector,
-        w_init=32,
-        startup_credit=32,
-        segment_size=32,
+        w_init=64,
+        startup_credit=64,
+        segment_size=64,
         interest_lifetime_s=15.0,
     )
     app = create_app(runtime)

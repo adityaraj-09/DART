@@ -3,210 +3,422 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DART — the AI writes one page, then waits</title>
+  <title>DART — Demand-Addressed Runtime Tokens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #0b0e13;
-      --panel: #141a22;
-      --ink: #eef3f8;
-      --muted: #93a0b5;
-      --accent: #5eead4;
-      --accent-ink: #042f2e;
-      --wait: #fbbf24;
-      --wait-bg: #2a1f06;
-      --write-bg: #08332e;
-      --line: #2a3444;
-      --page: #14b8a6;
-      --sans: "Segoe UI", system-ui, sans-serif;
-      --mono: ui-monospace, Menlo, Consolas, monospace;
+      --ink: #0c0c0c;
+      --paper: #ffffff;
+      --wash: #f4f4f4;
+      --rule: #e2e2e2;
+      --mute: #5a5a5a;
+      --tick: #1b7a3a;
+      --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+      --sans: "IBM Plex Sans", "Helvetica Neue", system-ui, sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body {
-      margin: 0; background: var(--bg); color: var(--ink);
-      font-family: var(--sans); line-height: 1.45;
-      display: flex; flex-direction: column;
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.55;
+      display: flex;
+      flex-direction: column;
     }
+    button, input, textarea { font: inherit; color: inherit; }
+    :focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px;
+    }
+
     header {
-      padding: 0.8rem 1.2rem 0.7rem;
-      border-bottom: 1px solid var(--line);
+      padding: 1rem 1.4rem 0.95rem;
+      border-bottom: 1px solid var(--ink);
     }
-    .topline {
-      display: flex; justify-content: space-between; gap: 1rem; align-items: baseline;
+    .mast {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 1.25rem;
     }
-    h1 { font-size: 1.25rem; margin: 0; }
-    h1 span { color: var(--accent); font-weight: 650; }
+    h1 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 1.85rem;
+      font-weight: 500;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+    h1 .expand {
+      display: inline-block;
+      margin-left: 0.7rem;
+      font-family: var(--sans);
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--mute);
+      vertical-align: middle;
+    }
     .model {
-      font-family: var(--mono); font-size: 0.75rem; color: var(--accent);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.04em;
       text-align: right;
+      color: var(--mute);
     }
-    .lede { margin: 0.35rem 0 0.7rem; font-size: 1.02rem; max-width: 58rem; }
-    .lede strong { color: var(--wait); }
-    .compare {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem;
-    }
-    .compare div {
-      background: var(--panel); border: 1px solid var(--line);
-      border-radius: 10px; padding: 0.55rem 0.75rem; font-size: 0.9rem;
-    }
-    .compare b { display: block; font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-    .compare .yes { border-color: var(--accent); }
-    .compare .no { opacity: 0.85; }
-    main {
-      flex: 1; min-height: 0;
-      display: grid; grid-template-columns: minmax(0, 1fr) 360px;
-    }
-    @media (max-width: 980px) {
-      main { grid-template-columns: 1fr; }
-      .compare { grid-template-columns: 1fr; }
-    }
-    .stage { padding: 0.85rem 1.2rem; display: flex; flex-direction: column; min-height: 0; }
-    label { display: block; color: var(--muted); font-size: 0.78rem; margin-bottom: 0.25rem; }
-    textarea, input {
-      width: 100%; background: var(--panel); color: var(--ink);
-      border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.7rem;
-      font: inherit;
-    }
-    textarea { min-height: 58px; resize: vertical; }
-    .controls { display: flex; gap: 0.55rem; align-items: end; flex-wrap: wrap; margin-top: 0.5rem; }
-    .field { width: 7.2rem; }
-    button {
-      background: var(--accent); color: var(--accent-ink); border: 0;
-      border-radius: 9px; padding: 0.7rem 1rem; font-weight: 750; cursor: pointer;
+    .lede {
+      margin: 0.5rem 0 0;
+      max-width: 46rem;
       font-size: 0.95rem;
+      color: var(--mute);
     }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    button.ghost { background: #0f2a28; color: var(--accent); border: 1px solid var(--accent); }
-    button.stop { background: #b45309; color: #fff7ed; }
+    .lede strong { color: var(--ink); font-weight: 600; }
+
+    main {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+    }
+    @media (max-width: 860px) {
+      main { grid-template-columns: 1fr; }
+      .model { text-align: left; }
+      h1 .expand { display: block; margin: 0.35rem 0 0; }
+    }
+
+    .stage {
+      padding: 1rem 1.3rem 1.1rem;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--wash);
+    }
+    label {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--mute);
+      margin-bottom: 0.28rem;
+    }
+    textarea, input {
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--ink);
+      border-radius: 0;
+      padding: 0.62rem 0.72rem;
+    }
+    textarea { min-height: 72px; resize: vertical; }
+    textarea::placeholder,
+    input::placeholder { color: #9a9a9a; }
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: end;
+      flex-wrap: wrap;
+      margin-top: 0.75rem;
+    }
+    .actions {
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      align-items: end;
+    }
+    .field { width: 8.4rem; min-width: 7rem; }
+    button {
+      background: var(--ink);
+      color: var(--paper);
+      border: 1px solid var(--ink);
+      border-radius: 0;
+      padding: 0.64rem 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { background: #2a2a2a; }
+    button:disabled { opacity: 0.32; cursor: not-allowed; }
+    button.ghost {
+      background: var(--paper);
+      color: var(--ink);
+    }
+    button.ghost:hover:not(:disabled) { background: var(--wash); }
+    button.stop {
+      background: var(--paper);
+      color: var(--ink);
+      border-style: dashed;
+    }
+
     #now-card {
-      margin-top: 0.7rem; border-radius: 12px; padding: 0.75rem 0.9rem;
-      border: 2px solid var(--line); background: var(--panel);
+      margin-top: 0.85rem;
+      padding: 0.7rem 0.85rem;
+      border: 1px solid var(--ink);
+      background: var(--paper);
     }
     #now-card .kicker {
-      font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--mute);
     }
-    #now-card .msg { font-size: 1.15rem; font-weight: 700; margin-top: 0.15rem; }
-    #now-card[data-kind="write"] { background: var(--write-bg); border-color: var(--accent); }
-    #now-card[data-kind="write"] .msg { color: var(--accent); }
-    #now-card[data-kind="paused"] { background: var(--wait-bg); border-color: var(--wait); }
-    #now-card[data-kind="paused"] .msg { color: var(--wait); }
-    .pages-rail { display: flex; gap: 0.4rem; margin-top: 0.55rem; flex-wrap: wrap; }
+    #now-card .msg {
+      font-size: 0.98rem;
+      font-weight: 600;
+      margin-top: 0.12rem;
+    }
+    #now-card[data-kind="write"] {
+      background: var(--ink);
+      color: var(--paper);
+    }
+    #now-card[data-kind="write"] .kicker,
+    #now-card[data-kind="write"] .msg { color: var(--paper); }
+    #now-card[data-kind="paused"] {
+      box-shadow: inset 3px 0 0 var(--ink);
+    }
+
+    .pages-rail {
+      display: flex;
+      gap: 0.35rem;
+      margin-top: 0.55rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .tick {
+      display: inline-flex;
+      width: 1.4rem;
+      height: 1.4rem;
+      align-items: center;
+      justify-content: center;
+      background: var(--tick);
+      color: #fff;
+      border: 1px solid var(--tick);
+    }
+    .tick svg { width: 0.82rem; height: 0.82rem; display: block; }
     .pill {
-      border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.65rem;
-      font-size: 0.78rem; color: var(--muted);
+      display: inline-flex;
+      min-width: 1.4rem;
+      height: 1.4rem;
+      align-items: center;
+      justify-content: center;
+      padding: 0 0.35rem;
+      border: 1px solid var(--ink);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--ink);
+      background: var(--paper);
     }
-    .pill.done { border-color: var(--accent); color: var(--accent); }
-    .pill.live { border-color: var(--wait); color: var(--wait); }
+    .pill.live {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
     #reader {
-      flex: 1; min-height: 260px; margin-top: 0.65rem; overflow: auto;
-      background: #10161e; border: 1px solid var(--line); border-radius: 12px;
-      padding: 0.8rem 0.9rem 1.2rem;
+      flex: 1;
+      min-height: 240px;
+      margin-top: 0.65rem;
+      overflow: auto;
+      background: var(--ink);
+      border: 1px solid var(--ink);
+      padding: 1rem 0.95rem 1.25rem;
     }
     .page {
-      min-height: calc(100% - 8px); background: #18202b; border-radius: 10px;
-      padding: 0.85rem 1rem 2.2rem; margin-bottom: 0.8rem;
-      border-left: 6px solid var(--page);
+      position: relative;
+      background: var(--paper);
+      color: var(--ink);
+      padding: 1.2rem 1.3rem 1.55rem;
+      margin: 0 auto 0.85rem;
+      max-width: 40rem;
+      min-height: 11rem;
     }
-    .page .meta { color: var(--accent); font-weight: 700; margin-bottom: 0.45rem; font-size: 0.92rem; }
-    .page .body { font-size: 1.12rem; white-space: pre-wrap; }
+    .page .folio {
+      position: absolute;
+      top: 0.85rem;
+      right: 1.1rem;
+      font-family: var(--serif);
+      font-size: 1.7rem;
+      line-height: 1;
+      color: #d8d8d8;
+      pointer-events: none;
+    }
+    .page .meta {
+      font-family: var(--mono);
+      font-size: 0.64rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--mute);
+      margin-bottom: 0.6rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--rule);
+    }
+    .page .body {
+      font-family: var(--serif);
+      font-size: 1.28rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
     #more-sentinel {
-      text-align: center; padding: 1.3rem 0.8rem; border: 2px dashed var(--wait);
-      border-radius: 12px; background: var(--wait-bg); color: #fde68a;
+      text-align: center;
+      max-width: 40rem;
+      margin: 0 auto;
+      padding: 1.05rem 0.9rem;
+      border: 1px dashed #8a8a8a;
+      color: var(--paper);
+      background: transparent;
     }
-    #more-sentinel strong { display: block; font-size: 1.15rem; margin-bottom: 0.3rem; }
-    #more-sentinel.hidden { display: none; }
+    #more-sentinel strong {
+      display: block;
+      font-size: 0.92rem;
+      font-weight: 600;
+      margin-bottom: 0.2rem;
+    }
+    #more-sentinel.hidden,
+    #scroll-pad.hidden { display: none; }
+    #scroll-pad {
+      height: 70%;
+      min-height: 14rem;
+    }
+    .hint { color: var(--mute); font-size: 0.84rem; }
+    #reader > .hint {
+      color: #b0b0b0;
+      max-width: 36rem;
+      margin: 4rem auto;
+      text-align: center;
+      font-family: var(--serif);
+      font-size: 1.22rem;
+      font-style: italic;
+    }
+
     aside {
-      border-left: 1px solid var(--line); background: #0e131a;
-      padding: 0.85rem 1rem; overflow: auto;
+      border-left: 1px solid var(--ink);
+      background: var(--paper);
+      padding: 1.05rem 1.15rem 1.4rem;
+      overflow: auto;
+    }
+    @media (max-width: 860px) {
+      aside { border-left: 0; border-top: 1px solid var(--ink); }
     }
     aside h2 {
-      margin: 0 0 0.4rem; font-size: 0.72rem; letter-spacing: 0.08em;
-      text-transform: uppercase; color: var(--muted);
+      margin: 0 0 0.4rem;
+      font-family: var(--mono);
+      font-size: 0.64rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--mute);
     }
-    aside h2 + h2 { margin-top: 1rem; }
-    .story { font-size: 0.95rem; }
-    .story li { margin: 0.35rem 0; }
-    .metric { padding: 0.45rem 0; border-bottom: 1px solid var(--line); }
-    .metric .row { display: flex; justify-content: space-between; gap: 0.6rem; font-size: 0.88rem; }
-    .metric b { color: var(--accent); }
-    .metric p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.35; }
-    details { margin-top: 0.85rem; color: var(--muted); font-size: 0.82rem; }
-    details summary { cursor: pointer; color: var(--ink); }
-    .hint { color: var(--muted); font-size: 0.88rem; }
+    aside h2 + h2 { margin-top: 1.2rem; }
+    .metric {
+      padding: 0.48rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+    .metric:last-child { border-bottom: 0; }
+    .metric .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.6rem;
+      font-size: 0.84rem;
+    }
+    .metric b { font-family: var(--mono); font-weight: 500; }
+    .metric p {
+      margin: 0.16rem 0 0;
+      color: var(--mute);
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
+    .kv-block {
+      margin-top: 0.15rem;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid var(--ink);
+    }
+    details { margin-top: 1.1rem; color: var(--mute); font-size: 0.8rem; }
+    details summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+    details code { font-family: var(--mono); font-size: 0.78em; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <div class="topline">
-      <h1>DART <span>writes one short page, then waits</span></h1>
+    <div class="mast">
+      <h1>DART <span class="expand">Demand-Addressed Runtime Tokens</span></h1>
       <div class="model" id="model-label">Loading model…</div>
     </div>
     <p class="lede">
-      A normal chat app dumps the whole answer as fast as it can.
-      Here the AI writes <strong>about 30 words</strong>, then <strong>stops</strong>.
-      Scroll down to ask for the next 30. If you stop scrolling, it does not keep writing.
+      The model writes <strong>one short page</strong>, then waits.
+      Scroll — even when the page is short — to ask for the next page.
     </p>
-    <div class="compare" id="how-it-works">
-      <div class="no"><b>Normal chatbot</b>Keeps generating the whole essay whether you are reading or not.</div>
-      <div class="yes"><b>This demo</b>Page 1 = 30 words. Scroll = page 2. Until you scroll, the AI is idle.</div>
-    </div>
   </header>
   <main>
     <section class="stage">
       <label for="prompt">Your question</label>
-      <textarea id="prompt">Write a clear, friendly explanation of why the sky looks blue. Keep going with everyday examples so a reader can turn several short pages.</textarea>
+      <textarea id="prompt" placeholder="Ask anything. The first page is written only after you start."></textarea>
       <div class="controls">
         <div class="field">
           <label for="page">Words per page</label>
-          <input id="page" type="number" min="8" max="64" value="30" title="Interest window W. Each scroll asks for this many tokens." />
+          <input id="page" type="number" min="8" max="64" placeholder="8–64" title="Interest window W. Each scroll asks for this many tokens." />
         </div>
         <div class="field">
           <label for="max">Stop after</label>
-          <input id="max" type="number" min="30" max="512" value="120" title="max_tokens. Hard cap for the whole answer." />
+          <input id="max" type="number" min="30" max="8192" placeholder="30–8192" title="Hard cap for the whole answer. Not limited to 512." />
         </div>
-        <button id="go" type="button">Write the first page</button>
-        <button id="next" class="ghost" type="button" disabled>Write the next page</button>
-        <button id="stop" class="stop" type="button" disabled>Stop writing</button>
+        <div class="actions">
+          <button id="go" type="button">Write the first page</button>
+          <button id="next" class="ghost" type="button" disabled>Write the next page</button>
+          <button id="stop" class="stop" type="button" disabled>Stop writing</button>
+          <button id="reset" class="ghost" type="button" disabled>Start over</button>
+        </div>
       </div>
       <div id="now-card" data-kind="idle">
         <div class="kicker">Right now</div>
-        <div class="msg" id="status">Ready. Click “Write the first page” — the AI will write only 30 words, then wait.</div>
+        <div class="msg" id="status">Fill in a question, words per page, and a stop limit. Then write the first page.</div>
       </div>
       <div class="pages-rail" id="rail"></div>
-      <div id="reader" aria-live="polite">
-        <p class="hint" id="placeholder">Nothing on the page yet. The first click asks for 30 words. That ask is called an Interest.</p>
+      <div id="reader" tabindex="0" aria-live="polite">
+        <p class="hint" id="placeholder">The page is blank until you start a run.</p>
       </div>
     </section>
     <aside>
-      <h2>The story so far</h2>
-      <ol class="story" id="log">
-        <li>Waiting for you to start.</li>
-      </ol>
-      <h2>What the numbers mean</h2>
-      <div id="metrics"><p class="hint">Each score has a one-line definition. Paused ticks going up means the model is waiting, not writing.</p></div>
+      <h2>This run — counts</h2>
+      <div id="metrics"><p class="hint">Counts reset when you start over. They only cover the current DART run.</p></div>
+      <h2>Memory (KV) — process total</h2>
+      <div class="kv-block" id="kv-metrics"><p class="hint">Key–value cache across every run on this server.</p></div>
       <details>
-        <summary>Technical names (optional)</summary>
+        <summary>Technical names</summary>
         <p class="hint" id="now">
-          Each page is an Interest: a request for a token window W (here 30).
-          Zero Interests means zero decode. Stop closes the continuation and zeroes credit.
+          Each page is an Interest: a request for a token window W.
+          Zero Interests means zero decode. Start over closes the continuation.
         </p>
-        <p class="hint">Interest-Driven Decode · CIP · <code>/v1/continuations</code></p>
+        <p class="hint">Demand-Addressed Runtime Tokens · CIP · <code>/v1/continuations</code></p>
       </details>
     </aside>
   </main>
   <script>
-    const PAGE_DEFAULT = 30;
+    const MAX_TOKENS_CAP = 8192;
+    const TICK_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.4 2.8 8l1.1-1.1 2.3 2.3 5.9-5.9L13.2 4.4z"/></svg>';
     const reader = document.getElementById("reader");
     const go = document.getElementById("go");
     const nextBtn = document.getElementById("next");
     const stopBtn = document.getElementById("stop");
+    const resetBtn = document.getElementById("reset");
     const status = document.getElementById("status");
     const nowCard = document.getElementById("now-card");
     const metrics = document.getElementById("metrics");
+    const kvMetrics = document.getElementById("kv-metrics");
     const modelLabel = document.getElementById("model-label");
-    const logEl = document.getElementById("log");
     const nowEl = document.getElementById("now");
     const rail = document.getElementById("rail");
+    const promptEl = document.getElementById("prompt");
+    const pageEl = document.getElementById("page");
+    const maxEl = document.getElementById("max");
 
     let dartModel = "dart-synth-8b";
     let handle = null;
@@ -215,10 +427,31 @@
     let pages = 0;
     let shown = 0;
     let allowScrollAsk = false;
-    let logRows = [];
+    let started = false;
+    let lastSnap = null;
+    let touchY = null;
+    let scrollOrigin = 0;
 
     function pageSize() {
-      return Math.max(8, Math.min(64, Number(document.getElementById("page").value) || PAGE_DEFAULT));
+      const n = Number(pageEl.value);
+      return Number.isFinite(n) ? n : NaN;
+    }
+
+    function maxTokens() {
+      const n = Number(maxEl.value);
+      return Number.isFinite(n) ? n : NaN;
+    }
+
+    function validateInputs() {
+      const prompt = promptEl.value.trim();
+      const w = pageSize();
+      const cap = maxTokens();
+      if (!prompt) return "Write a question first.";
+      if (!Number.isFinite(w) || w < 8 || w > 64) return "Words per page must be a number from 8 to 64.";
+      if (!Number.isFinite(cap) || cap < 30 || cap > MAX_TOKENS_CAP) {
+        return "Stop after must be a number from 30 to 8192.";
+      }
+      return "";
     }
 
     function setStatus(text, kind) {
@@ -226,110 +459,161 @@
       nowCard.dataset.kind = kind || "idle";
     }
 
-    function renderLog() {
-      if (!logRows.length) {
-        logEl.innerHTML = "<li>Waiting for you to start.</li>";
+    function renderRail() {
+      if (!started) {
+        rail.innerHTML = "";
         return;
       }
-      logEl.innerHTML = logRows.map((r) => `<li>${r}</li>`).join("");
-    }
-
-    function renderRail() {
-      const cap = Number(document.getElementById("max").value) || 120;
-      const total = Math.max(pages + (done ? 0 : 1), Math.ceil(cap / pageSize()));
       const bits = [];
-      for (let i = 1; i <= total; i++) {
-        let cls = "pill";
-        let label = "Page " + i;
-        if (i < pages || (i === pages && !busy)) { cls += " done"; label += " · done"; }
-        else if (i === pages + 1 && busy) { cls += " live"; label += " · writing"; }
-        else if (i === pages + 1 && !done) { cls += " live"; label += " · scroll for this"; }
-        else label += " · later";
-        bits.push(`<span class="${cls}">${label}</span>`);
+      for (let i = 1; i <= pages; i++) {
+        bits.push(`<span class="tick" title="Page ${i} written">${TICK_SVG}</span>`);
+      }
+      if (!done) {
+        const n = pages + 1;
+        bits.push(`<span class="pill${busy ? " live" : ""}" title="Page ${n}">${n}</span>`);
       }
       rail.innerHTML = bits.join("");
+    }
+
+    function metricHtml(rows) {
+      return rows.map(([k, v, why]) =>
+        `<div class="metric"><div class="row"><span>${k}</span><b>${v ?? 0}</b></div><p>${why}</p></div>`
+      ).join("");
+    }
+
+    function runMetricsFrom(snap) {
+      if (!handle || !snap) return {};
+      const item = (snap.items || []).find((i) => i.cont_id === handle.cont_id);
+      return (item && item.metrics) || {};
+    }
+
+    function renderMetrics(snap) {
+      lastSnap = snap || lastSnap;
+      const t = started ? runMetricsFrom(lastSnap) : {};
+      const extra = Math.max(0, (t.tokens_generated || 0) - shown);
+      metrics.innerHTML = metricHtml([
+        [
+          "Words on your pages",
+          shown,
+          "Tokens received as DART pages in this run.",
+        ],
+        [
+          "Words the AI wrote",
+          t.tokens_generated || 0,
+          "Residual-stream steps that ran for this DART continuation only.",
+        ],
+        [
+          "Extra unread words",
+          t.tokens_generated_unconsumed ?? extra,
+          "Generated but not shown. DART aims for 0 on this run.",
+        ],
+        [
+          "Times the AI ran",
+          t.decode_kernel_launches || 0,
+          "Kernel launches for this DART run. One per page.",
+        ],
+        [
+          "Paused ticks",
+          t.decode_steps_skipped || 0,
+          "Heartbeats where credit was 0 and the model did not run.",
+        ],
+        [
+          "Cache hits",
+          t.cache_hits || 0,
+          "Named pages answered from storage on this run.",
+        ],
+      ]);
+      const kv = lastSnap || {};
+      kvMetrics.innerHTML = metricHtml([
+        [
+          "Memory for answers (KV)",
+          kv.kv_bytes || 0,
+          "Bytes of key–value cache on this server. This is the running total.",
+        ],
+        [
+          "Peak memory (KV high water)",
+          kv.kv_high_water || 0,
+          "Highest KV bytes seen since the server started. Not reset by start over.",
+        ],
+      ]);
     }
 
     async function refreshHealth() {
       const r = await fetch("/health");
       const j = await r.json();
       dartModel = j.engine || dartModel;
-      const pretty = dartModel.includes("SmolLM") ? "Small real model (SmolLM2)" : dartModel;
+      const pretty = dartModel.includes("SmolLM") ? "SmolLM2-135M-Instruct" : dartModel;
       const klass = j.engine_class && j.engine_class.includes("HuggingFace") ? " · Hugging Face" : "";
       modelLabel.textContent = pretty + klass;
     }
 
     async function refreshMetrics() {
       const r = await fetch("/v1/metrics");
-      const j = await r.json();
-      const t = j.totals || {};
-      const extra = Math.max(0, (t.tokens_generated || 0) - shown);
-      metrics.innerHTML = [
-        [
-          "Words on your pages",
-          shown,
-          "How many tokens you already received as pages. One token is roughly a short word.",
-        ],
-        [
-          "Words the AI actually wrote",
-          t.tokens_generated,
-          "tokens_generated — residual-stream steps that ran. Should match the pages you asked for.",
-        ],
-        [
-          "Extra unread words",
-          t.tokens_generated_unconsumed ?? extra,
-          "Generated but not shown. DART aims for 0. A normal chatbot piles these up in a buffer.",
-        ],
-        [
-          "Times the AI ran",
-          t.decode_kernel_launches,
-          "Kernel launches. One per page in this demo (Interest #1, #2, #3…).",
-        ],
-        [
-          "Paused ticks",
-          t.decode_steps_skipped,
-          "Heartbeats where DART woke up, you had not asked for more (credit W=0), and it did not run the model. This number climbing is the point: waiting, not writing.",
-        ],
-        [
-          "Cache hits",
-          t.cache_hits,
-          "A later ask for the same named page was answered from storage. No model run.",
-        ],
-        [
-          "Memory for this answer (KV)",
-          j.kv_bytes,
-          "Bytes of key–value cache for the live story. Grows only as new pages are written.",
-        ],
-        [
-          "Peak memory (KV high water)",
-          j.kv_high_water,
-          "Highest KV bytes so far. Push serving grows this for unread text; credit-gating keeps it smaller.",
-        ],
-      ].map(([k, v, why]) =>
-        `<div class="metric"><div class="row"><span>${k}</span><b>${v ?? 0}</b></div><p>${why}</p></div>`
-      ).join("");
+      renderMetrics(await r.json());
+    }
+
+    function emptyReader(message) {
+      reader.innerHTML = `<p class="hint" id="placeholder">${message}</p>`;
+    }
+
+    function resetRunView() {
+      pages = 0;
+      shown = 0;
+      done = false;
+      busy = false;
+      started = false;
+      allowScrollAsk = false;
+      renderRail();
+      renderMetrics(lastSnap);
+      nextBtn.disabled = true;
+      nextBtn.textContent = "Write the next page";
+      stopBtn.disabled = true;
+      resetBtn.disabled = true;
+      go.disabled = false;
+      go.textContent = "Write the first page";
+      emptyReader("The page is blank until you start a run.");
+      nowEl.textContent = "Each page is an Interest: a request for a token window W. Zero Interests means zero decode.";
+      const ready = !validateInputs();
+      setStatus(
+        ready
+          ? "Ready for a new run. Previous pages and counts are cleared. KV still shows the server total."
+          : "Fill in a question, words per page, and a stop limit. Then write the first page.",
+        "idle"
+      );
     }
 
     function ensureSentinel() {
       let el = document.getElementById("more-sentinel");
-      if (el) return el;
-      el = document.createElement("div");
-      el.id = "more-sentinel";
-      el.innerHTML = "<strong>Scroll here to ask for the next 30 tokens</strong>Turn the page. The AI is waiting.";
-      reader.appendChild(el);
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "more-sentinel";
+        el.innerHTML = "<strong>Scroll to ask for the next page</strong>Wheel, swipe, or use the next-page button.";
+        reader.appendChild(el);
+      }
+      let pad = document.getElementById("scroll-pad");
+      if (!pad) {
+        pad = document.createElement("div");
+        pad.id = "scroll-pad";
+        pad.setAttribute("aria-hidden", "true");
+        reader.appendChild(pad);
+      }
       return el;
     }
 
     function updateSentinel() {
       const el = ensureSentinel();
+      const pad = document.getElementById("scroll-pad");
       const w = pageSize();
       if (done || !handle) {
         el.classList.add("hidden");
+        if (pad) pad.classList.add("hidden");
         return;
       }
       el.classList.remove("hidden");
-      el.innerHTML = `<strong>Scroll here to ask for the next ${w} tokens</strong>` +
-        `This is how you turn the page. Or click “Write the next page”.`;
+      if (pad) pad.classList.remove("hidden");
+      const words = Number.isFinite(w) ? w : "the next";
+      el.innerHTML = `<strong>Scroll to ask for the next ${words} tokens</strong>` +
+        `Wheel, swipe, or click “Write the next page”.`;
     }
 
     function appendPage(data) {
@@ -342,7 +626,8 @@
       card.className = "page";
       card.dataset.interest = String(pages);
       card.innerHTML =
-        `<div class="meta">Page ${pages} · ${n} words · you asked, then it wrote this</div>` +
+        `<div class="folio">${String(pages).padStart(2, "0")}</div>` +
+        `<div class="meta">Page ${pages} · ${n} words</div>` +
         `<div class="body">${escapeHtml(data.text || "")}</div>`;
       const sentinel = document.getElementById("more-sentinel");
       if (sentinel) reader.insertBefore(card, sentinel);
@@ -359,16 +644,25 @@
       handle = null;
     }
 
+    function requestNextPage() {
+      if (!allowScrollAsk || busy || done || !handle) return false;
+      allowScrollAsk = false;
+      askPage();
+      return true;
+    }
+
     async function askPage() {
       if (busy || done || !handle) return;
+      const w = pageSize();
+      if (!Number.isFinite(w) || w < 8 || w > 64) {
+        setStatus("Words per page must be a number from 8 to 64.", "idle");
+        return;
+      }
       busy = true;
       nextBtn.disabled = true;
-      const w = pageSize();
       const n = pages + 1;
-      setStatus(`Writing page ${n}… about ${w} words. A normal app would already be dumping the rest.`, "write");
+      setStatus(`Writing page ${n}… about ${w} words.`, "write");
       nowEl.textContent = `Interest #${n} in flight (window ${w}).`;
-      logRows.push(`Asked for page ${n} (${w} words).`);
-      renderLog();
       renderRail();
       let data = null;
       for (let attempt = 0; attempt < 6; attempt++) {
@@ -382,8 +676,6 @@
         const detail = String(body.detail || body.message || res.status);
         if (res.status === 400 && /expired/i.test(detail) && attempt < 5) continue;
         setStatus("Could not write that page: " + detail, "idle");
-        logRows[logRows.length - 1] = `Page ${n} failed.`;
-        renderLog();
         busy = false;
         nextBtn.disabled = done;
         renderRail();
@@ -398,20 +690,19 @@
         }).catch(() => {});
       }
       appendPage(data);
-      logRows[logRows.length - 1] = `Page ${n} arrived (${got} words). The AI stopped.`;
-      renderLog();
-      const cap = Number(document.getElementById("max").value) || 120;
-      if (data.stopped || shown >= cap || got <= 0) {
+      const cap = maxTokens();
+      if (data.stopped || (Number.isFinite(cap) && shown >= cap) || got <= 0) {
         done = true;
-        setStatus(`Done. You received ${pages} short pages (${shown} words). The AI will not write more.`, "idle");
+        setStatus(`Stopped after ${pages} pages (${shown} words).`, "idle");
         nextBtn.disabled = true;
         updateSentinel();
       } else {
-        setStatus(`Page ${pages} is done (${got} words). The AI is waiting. Scroll down for page ${pages + 1}.`, "paused");
+        setStatus("Waiting. Scroll for the next page.", "paused");
         nextBtn.disabled = false;
         nextBtn.textContent = "Write the next page";
         allowScrollAsk = true;
         updateSentinel();
+        scrollOrigin = reader.scrollTop;
       }
       renderRail();
       await refreshMetrics();
@@ -419,66 +710,92 @@
     }
 
     async function startReading() {
+      const err = validateInputs();
+      if (err) {
+        setStatus(err, "idle");
+        return;
+      }
       if (handle) await closeCont();
-      reader.innerHTML = '<p class="hint" id="placeholder">Getting ready. The AI has not written the answer yet.</p>';
-      logRows = [];
       pages = 0;
       shown = 0;
       done = false;
       allowScrollAsk = false;
+      started = true;
+      emptyReader("Getting ready. Nothing has been written yet.");
       setStatus("Getting ready… still no answer on the page.", "write");
       go.disabled = true;
       stopBtn.disabled = false;
+      resetBtn.disabled = false;
       nextBtn.disabled = true;
       renderRail();
+      renderMetrics(lastSnap);
       const opened = await fetch("/v1/continuations", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           model: dartModel,
-          prompt: document.getElementById("prompt").value,
-          max_tokens: Number(document.getElementById("max").value) || 120,
+          prompt: promptEl.value.trim(),
+          max_tokens: maxTokens(),
         }),
       });
       handle = await opened.json();
       if (!opened.ok) {
+        started = false;
         setStatus("Could not start: " + (handle.detail || opened.status), "idle");
+        handle = null;
         go.disabled = false;
+        stopBtn.disabled = true;
+        resetBtn.disabled = true;
+        renderRail();
+        renderMetrics(lastSnap);
         return;
       }
       nowEl.textContent = `Continuation open. Next step is Interest #1 for ${pageSize()} tokens.`;
       await askPage();
       go.disabled = false;
-      go.textContent = "Start over";
     }
 
-    function maybeScrollAsk() {
-      if (!allowScrollAsk || busy || done || !handle) return;
-      const el = document.getElementById("more-sentinel");
-      if (!el || el.classList.contains("hidden")) return;
-      const root = reader.getBoundingClientRect();
-      const box = el.getBoundingClientRect();
-      if (box.top < root.bottom - 8) {
-        allowScrollAsk = false;
-        askPage();
+    async function startOver() {
+      await closeCont();
+      resetRunView();
+    }
+
+    function onReaderWheel(e) {
+      if (e.deltaY > 8) requestNextPage();
+    }
+
+    function onReaderKey(e) {
+      if (["ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) {
+        if (requestNextPage()) e.preventDefault();
       }
     }
 
     go.addEventListener("click", startReading);
     nextBtn.addEventListener("click", () => { allowScrollAsk = false; askPage(); });
+    resetBtn.addEventListener("click", startOver);
     stopBtn.addEventListener("click", async () => {
       done = true;
       nextBtn.disabled = true;
       stopBtn.disabled = true;
       await closeCont();
-      setStatus("You stopped it. The AI will not write more.", "idle");
-      logRows.push("You hit stop.");
-      renderLog();
+      setStatus("You stopped it. The model will not write more.", "idle");
       updateSentinel();
       renderRail();
       refreshMetrics();
     });
-    reader.addEventListener("scroll", maybeScrollAsk, { passive: true });
+    reader.addEventListener("scroll", () => {
+      if (reader.scrollTop > scrollOrigin + 20) requestNextPage();
+    }, { passive: true });
+    reader.addEventListener("wheel", onReaderWheel, { passive: true });
+    reader.addEventListener("keydown", onReaderKey);
+    reader.addEventListener("touchstart", (e) => { touchY = e.touches[0].clientY; }, { passive: true });
+    reader.addEventListener("touchmove", (e) => {
+      if (touchY == null) return;
+      if (touchY - e.touches[0].clientY > 20) {
+        touchY = null;
+        requestNextPage();
+      }
+    }, { passive: true });
 
     refreshHealth();
     refreshMetrics();
