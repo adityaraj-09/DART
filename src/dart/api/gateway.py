@@ -18,7 +18,15 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
-from dart.core.errors import AmplificationError, DartError, HandoverError, InterestNack, LeaseError, PinMissError
+from dart.core.errors import (
+    AmplificationError,
+    DartError,
+    HandoverError,
+    InterestNack,
+    LeaseError,
+    PinMissError,
+    TenantQuotaError,
+)
 from dart.cip.protocol import CipMessage, CipName, Interest
 from dart.core.runtime import ContinuationHandle, DartRuntime
 from dart.core.types import ChatMessage, InterestKind, Prompt
@@ -152,6 +160,8 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
             else:
                 data = await runtime.interest(req, lease=body.lease)
                 decision = None
+        except TenantQuotaError as exc:
+            raise HTTPException(429, str(exc)) from exc
         except (LeaseError, AmplificationError, InterestNack, PinMissError, HandoverError) as exc:
             raise HTTPException(400, str(exc)) from exc
         payload = json.loads(data.model_dump_json())
@@ -206,7 +216,10 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
         return json.loads(data.model_dump_json())
 
     @app.post("/v1/continuations")
-    async def open_cont(body: OpenRequest) -> dict[str, Any]:
+    async def open_cont(
+        body: OpenRequest,
+        x_dart_tenant: str | None = Header(default=None, alias="X-Dart-Tenant"),
+    ) -> dict[str, Any]:
         prompt: Prompt | list[ChatMessage] | str
         if body.messages:
             prompt = body.messages
@@ -216,7 +229,11 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
             raise HTTPException(400, "prompt or messages required")
         opener = router.open if router is not None else runtime.open
         handle = await opener(
-            prompt, max_tokens=body.max_tokens, temperature=body.temperature, model=body.model
+            prompt,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+            model=body.model,
+            tenant_id=x_dart_tenant,
         )
         return handle.dump()
 
@@ -273,6 +290,8 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
                     payload["type"] = "done"
                     payload["token_count"] = data.token_count()
                     yield f"data: {json.dumps(payload)}\n\n".encode()
+                except TenantQuotaError as exc:
+                    yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n".encode()
                 except (LeaseError, AmplificationError, InterestNack, PinMissError, HandoverError) as exc:
                     yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n".encode()
                 except DartError as exc:
@@ -289,6 +308,8 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
 
         try:
             data = await _issue()
+        except TenantQuotaError as exc:
+            raise HTTPException(429, str(exc)) from exc
         except (LeaseError, AmplificationError, InterestNack, PinMissError, HandoverError) as exc:
             raise HTTPException(400, str(exc)) from exc
         except DartError as exc:
@@ -369,28 +390,35 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
     async def chat_completions(body: ChatCompletionRequest, request: Request) -> Any:
         pace = request.headers.get("x-dart-pace")
         window = int(request.headers.get("x-dart-window", "16"))
+        # X-Dart-Pace is the default OpenAI path (reading compositor).
+        # Opt out with X-Dart-Pace: drain.
         handle = await runtime.open(
             [ChatMessage(role=m.get("role", "user"), content=m.get("content", "")) for m in body.messages],
             max_tokens=body.max_tokens,
             temperature=body.temperature,
             model=body.model,
+            tenant_id=request.headers.get("x-dart-tenant"),
         )
         if not body.stream:
-            text = await _drain(runtime, handle, request, window, pace, body.max_tokens)
-            return {
-                "id": f"chatcmpl-{handle.cont_id[:12]}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": body.model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": text},
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": _usage(runtime, handle),
-            }
+            try:
+                text = await _drain(runtime, handle, request, window, pace, body.max_tokens)
+                usage = _usage(runtime, handle)
+                return {
+                    "id": f"chatcmpl-{handle.cont_id[:12]}",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": body.model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": text},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": usage,
+                }
+            finally:
+                await runtime.close(handle.cont_id)
 
         async def events() -> AsyncIterator[bytes]:
             cid = f"chatcmpl-{handle.cont_id[:12]}"
@@ -450,13 +478,7 @@ async def _stream_segments(
     pace: str | None,
     max_tokens: int,
 ) -> AsyncIterator[str]:
-    from dart.client.consumers import DrainPacer, ReadingPacer
-
-    pacer: DrainPacer | ReadingPacer
-    if pace:
-        pacer = ReadingPacer(tokens_per_sec=float(pace), burst=window)
-    else:
-        pacer = DrainPacer(window=window)
+    pacer = openai_pacer(pace, window)
     async for data in runtime.consume(handle, pacer, max_tokens=max_tokens):
         if await request.is_disconnected():
             break
@@ -476,6 +498,28 @@ async def _drain(
     async for piece in _stream_segments(runtime, handle, request, window, pace, max_tokens):
         parts.append(piece)
     return "".join(parts)
+
+
+def openai_pacer(pace: str | None, window: int) -> Any:
+    """X-Dart-Pace is the default OpenAI path. Omit the header → reading at 30 tok/s."""
+    from dart.client.consumers import DrainPacer, JsonNeedPacer, ReadingPacer, TtsPacer
+
+    kind = (pace or "30").strip().lower()
+    if kind in {"drain", "off", "push", "none"}:
+        return DrainPacer(window=window)
+    if kind in {"tts", "speech"}:
+        return TtsPacer(burst=window)
+    if kind in {"json", "grammar"}:
+        return JsonNeedPacer(burst=window, pause_s=0.0)
+    if kind in {"tool", "tools"}:
+        return DrainPacer(window=window)
+    if kind in {"reading", "pace", "default"}:
+        return ReadingPacer(tokens_per_sec=30.0, burst=window)
+    try:
+        rate = float(kind)
+    except ValueError:
+        rate = 30.0
+    return ReadingPacer(tokens_per_sec=max(rate, 0.1), burst=window)
 
 
 def _usage(runtime: DartRuntime, handle: ContinuationHandle) -> dict[str, int]:

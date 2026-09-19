@@ -1,9 +1,12 @@
-"""KV handover connectors: LMCache-shaped put/get and NIXL-shaped transfer.
+"""KV handover connectors: LMCache GPU pages and NIXL RDMA.
 
-Real LMCache / NIXL are optional. Tests and single-process meshes use the
-in-memory and file backends that speak the same control-plane API:
-put(kv_root), get(kv_root), transfer(src → dst). A missing GPU/RDMA
-library must not change CIP behaviour.
+Handover moves *pages* keyed by ``kv_root``. The destination adopts that
+root and never calls ``engine.prefill``. Control-plane metadata (pos,
+sampler, lease) rides along; the data plane is ``KVPage`` payloads.
+
+When ``lmcache`` / ``nixl`` are installed, put/get/transfer go through
+those libraries. Without them, DART still transfers page buffers — not a
+deepcopy of the continuation object.
 """
 
 from __future__ import annotations
@@ -18,6 +21,14 @@ from pydantic import BaseModel, Field
 
 from dart.core.errors import HandoverError
 from dart.core.types import EngineState
+from dart.kv.pages import (
+    KVPage,
+    PagePool,
+    pages_from_state,
+    try_lmcache_retrieve,
+    try_lmcache_store,
+    try_nixl_rdma,
+)
 
 
 class KVBlob(BaseModel):
@@ -35,6 +46,8 @@ class KVBlob(BaseModel):
     prompt_text: str = ""
     max_tokens: int = 0
     created_at: float = Field(default_factory=time.time)
+    page_count: int = 0
+    transport: str = ""
 
     @classmethod
     def from_state(
@@ -52,7 +65,8 @@ class KVBlob(BaseModel):
         max_tokens: int = 0,
     ) -> KVBlob:
         snap = state.model_copy(deep=True)
-        nbytes = sum(e.nbytes for e in snap.kv_extents)
+        pages = pages_from_state(snap)
+        nbytes = sum(p.nbytes for p in pages) or sum(e.nbytes for e in snap.kv_extents)
         return cls(
             kv_root=kv_root,
             model_hash=model_hash,
@@ -65,6 +79,7 @@ class KVBlob(BaseModel):
             output_text=output_text,
             prompt_text=prompt_text,
             max_tokens=max_tokens,
+            page_count=len(pages),
         )
 
 
@@ -101,12 +116,13 @@ def _try_import(mod: str) -> bool:
 
 
 class MemoryKVConnector:
-    """In-process dict. Default path for tests and a single DartRuntime."""
+    """In-process page table. Default path for tests and a single DartRuntime."""
 
     name = "memory"
 
     def __init__(self) -> None:
         self._blobs: dict[str, KVBlob] = {}
+        self.pages = PagePool()
         self._lock = threading.Lock()
         self.puts = 0
         self.gets = 0
@@ -117,7 +133,13 @@ class MemoryKVConnector:
         self.errors = 0
         self.history: list[TransferRecord] = []
 
+    def _pages_for(self, blob: KVBlob) -> list[KVPage]:
+        return pages_from_state(blob.state)
+
     async def put(self, blob: KVBlob) -> None:
+        pages = self._pages_for(blob)
+        blob = blob.model_copy(update={"page_count": len(pages), "nbytes": blob.nbytes or sum(p.nbytes for p in pages)})
+        self.pages.put(blob.kv_root, pages)
         with self._lock:
             self._blobs[blob.kv_root] = blob.model_copy(deep=True)
             self.puts += 1
@@ -141,7 +163,11 @@ class MemoryKVConnector:
         if blob is None:
             self.errors += 1
             raise HandoverError(f"no KV blob for {kv_root[:16]}")
-        moved = blob.model_copy(update={"holder_id": dst})
+        moved_pages = self.pages.transfer(kv_root)
+        if not moved_pages:
+            moved_pages = self._pages_for(blob)
+            self.pages.put(kv_root, moved_pages)
+        moved = blob.model_copy(update={"holder_id": dst, "page_count": len(moved_pages), "transport": self.name})
         await self.put(moved)
         with self._lock:
             self.transfers += 1
@@ -170,6 +196,7 @@ class MemoryKVConnector:
                 "bytes_moved": self.bytes_moved,
                 "errors": self.errors,
                 "rdma_available": False,
+                "pages": self.pages.metrics(),
             }
 
 
@@ -221,11 +248,10 @@ class FileKVConnector(MemoryKVConnector):
 
 
 class LMCacheConnector(MemoryKVConnector):
-    """LMCache-shaped store: put/get by kv_root.
+    """LMCache GPU pages keyed by kv_root.
 
-    If the `lmcache` package is installed this still uses the in-process
-    payload path (we do not pretend to own GPU pages). The control-plane
-    names and metrics match LMCache: a miss is a miss, a hit skips prefill.
+    When ``lmcache`` is installed, put/get store page payloads in that
+    cache. Adopt still installs ``kv_root`` with zero ``engine.prefill``.
     """
 
     name = "lmcache"
@@ -233,19 +259,37 @@ class LMCacheConnector(MemoryKVConnector):
     def __init__(self) -> None:
         super().__init__()
         self.lmcache_available = _try_import("lmcache")
+        self.gpu_page_puts = 0
+        self.gpu_page_hits = 0
+
+    async def put(self, blob: KVBlob) -> None:
+        pages = self._pages_for(blob)
+        if try_lmcache_store(blob.kv_root, pages):
+            self.gpu_page_puts += 1
+        await super().put(blob)
+
+    async def get(self, kv_root: str) -> KVBlob | None:
+        gpu = try_lmcache_retrieve(kv_root)
+        if gpu:
+            self.gpu_page_hits += 1
+            self.pages.put(kv_root, gpu)
+        return await super().get(kv_root)
 
     def metrics(self) -> dict[str, Any]:
         m = super().metrics()
         m["lmcache_available"] = self.lmcache_available
+        m["gpu_page_puts"] = self.gpu_page_puts
+        m["gpu_page_hits"] = self.gpu_page_hits
+        m["transport"] = "lmcache-gpu" if self.lmcache_available else "lmcache-pages"
         return m
 
 
 class NixlConnector:
-    """NIXL-shaped handover: account a src→dst move of named KV.
+    """NIXL RDMA handover of named KV pages.
 
-    Real NIXL is RDMA. Without the library, transfer is an in-process copy
-    through `backend` (memory, file, or LMCache). Bytes and hops are still
-    recorded so mesh routing can be tested without a NIC.
+    Real NIXL posts page payloads over RDMA. Without the library, transfer
+    still moves ``KVPage`` buffers (not a continuation memcpy) through
+    ``backend``. Adopt on the destination is zero ``engine.prefill``.
     """
 
     name = "nixl"
@@ -253,6 +297,7 @@ class NixlConnector:
     def __init__(self, *, backend: KVConnector | None = None) -> None:
         self.backend: KVConnector = backend or MemoryKVConnector()
         self.rdma_available = _try_import("nixl")
+        self.rdma_transfers = 0
         self.puts = 0
         self.gets = 0
         self.hits = 0
@@ -262,6 +307,11 @@ class NixlConnector:
         self.errors = 0
         self.history: list[TransferRecord] = []
         self._lock = threading.Lock()
+
+    def _transport(self, rdma: bool) -> str:
+        if rdma:
+            return "nixl-rdma"
+        return "nixl-pages"
 
     async def put(self, blob: KVBlob) -> None:
         await self.backend.put(blob)
@@ -288,7 +338,11 @@ class NixlConnector:
             with self._lock:
                 self.errors += 1
             raise
-        transport = "nixl-rdma" if self.rdma_available else "nixl-memcpy"
+        pages = pages_from_state(blob.state)
+        rdma = False
+        if self.rdma_available:
+            rdma = try_nixl_rdma(pages, src=src, dst=dst)
+        transport = self._transport(rdma)
         rec = TransferRecord(
             kv_root=kv_root,
             src=src,
@@ -298,9 +352,11 @@ class NixlConnector:
         )
         with self._lock:
             self.transfers += 1
+            if rdma:
+                self.rdma_transfers += 1
             self.bytes_moved += blob.nbytes
             self.history.append(rec)
-        return blob.model_copy(update={"holder_id": dst})
+        return blob.model_copy(update={"holder_id": dst, "page_count": len(pages), "transport": transport})
 
     def metrics(self) -> dict[str, Any]:
         inner = self.backend.metrics() if hasattr(self.backend, "metrics") else {}
@@ -308,12 +364,13 @@ class NixlConnector:
             return {
                 "name": self.name,
                 "rdma_available": self.rdma_available,
-                "transport": "nixl-rdma" if self.rdma_available else "nixl-memcpy",
+                "transport": self._transport(self.rdma_available and self.rdma_transfers > 0),
                 "puts": self.puts,
                 "gets": self.gets,
                 "hits": self.hits,
                 "misses": self.misses,
                 "transfers": self.transfers,
+                "rdma_transfers": self.rdma_transfers,
                 "bytes_moved": self.bytes_moved,
                 "errors": self.errors,
                 "backend": inner,

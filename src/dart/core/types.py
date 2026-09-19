@@ -183,8 +183,18 @@ class RuntimeConfig(BaseModel):
     rtt_init_s: float = 0.05
     startup_credit: int = 16
     secret: str = "dart-dev-secret-change-me"
+    secret_previous: str | None = None
     cas_dir: str | None = None
+    pin_dir: str | None = None
+    tenant_interest_quota: int = 0
+    default_tenant: str = "default"
     fill_with_idle_sleep: bool = True
+
+    def secrets(self) -> list[str]:
+        out = [self.secret]
+        if self.secret_previous:
+            out.append(self.secret_previous)
+        return out
 
     @field_validator("segment_size")
     @classmethod

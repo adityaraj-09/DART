@@ -31,13 +31,23 @@ async def test_health_and_index(client: AsyncClient) -> None:
     assert "engine" in h.json()
     page = await client.get("/")
     assert page.status_code == 200
-    assert "Interest-Driven Decode" in page.text
+    assert "Demand-Addressed Runtime Tokens" in page.text
     assert "model-label" in page.text
-    assert "Scroll here to ask for the next" in page.text
     assert "Write the first page" in page.text
     assert "Write the next page" in page.text
     assert "/v1/continuations" in page.text
-    assert "A normal chat app dumps the whole answer" in page.text
+    assert "Zero Interests means zero decode" in page.text
+
+
+def test_openai_pace_defaults_to_reading() -> None:
+    from dart.api.gateway import openai_pacer
+    from dart.client.consumers import DrainPacer, ReadingPacer
+
+    default = openai_pacer(None, 16)
+    assert isinstance(default, ReadingPacer)
+    assert default.tokens_per_sec == 30.0
+    assert isinstance(openai_pacer("drain", 8), DrainPacer)
+    assert openai_pacer("200", 8).tokens_per_sec == 200.0  # type: ignore[attr-defined]
 
 
 async def test_openai_nonstream(client: AsyncClient) -> None:
@@ -154,3 +164,34 @@ async def test_demo_pages_are_thirty_token_interests(demo_client: AsyncClient) -
     assert d2["text"] != d1["text"]
     after = await demo_client.get("/v1/metrics")
     assert after.json()["totals"]["tokens_generated"] == 60
+
+
+async def test_tenant_header_and_delete_zeroes_credit() -> None:
+    rt = DartRuntime(
+        SyntheticEngine(seed=1),
+        RuntimeConfig(poll_interval_s=0.001, decode_quota=32, tenant_interest_quota=4),
+    )
+    await rt.start()
+    app = create_app(rt)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        opened = await client.post(
+            "/v1/continuations",
+            json={"prompt": "tenant", "max_tokens": 16},
+            headers={"X-Dart-Tenant": "acme"},
+        )
+        assert opened.status_code == 200
+        body = opened.json()
+        assert rt.get(body["cont_id"]).lease.tenant_id == "acme"
+        interest = await client.post(
+            f"/v1/continuations/{body['cont_id']}/interest",
+            json={"window": 8, "lease": body["lease"]},
+        )
+        assert interest.status_code == 200
+        assert (await client.get("/v1/metrics")).json()["tenants"]["acme"] == 1
+        closed = await client.delete(f"/v1/continuations/{body['cont_id']}")
+        assert closed.status_code == 200
+        cont = rt.get(body["cont_id"])
+        assert cont.cc.credits == 0
+        assert cont.cc.in_flight == 0
+    await rt.aclose()

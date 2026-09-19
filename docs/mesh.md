@@ -4,7 +4,7 @@ DART’s continuation is `(lease, kv_root)`, not a vLLM request. This page is wh
 
 ## Pin by `kv_root`
 
-`PinnedKVPool` (`src/dart/kv/pin.py`) indexes **engine state** by Merkle `kv_root`:
+`PinnedKVPool` (`src/dart/kv/pin.py`) indexes **engine state** by Merkle `kv_root`. `FilePinnedKVPool` persists that table next to FileCAS:
 
 - snapshot: token ids, sampler, extents, pos, segment index
 - holder: which producer currently has it on GPU/host
@@ -20,10 +20,10 @@ DART’s continuation is `(lease, kv_root)`, not a vLLM request. This page is wh
 
 | Kind | `put` / `get` | `transfer(src → dst)` | GPU / RDMA required |
 |---|---|---|---|
-| `memory` | in-process dict | copy + holder update | no |
-| `file` | directory of JSON blobs | same, survives process restart | no |
-| `lmcache` | same API as LMCache (key = `kv_root`) | via store | no; uses real `lmcache` only if installed |
-| `nixl` | wraps a backend | accounts bytes/hops; `nixl-rdma` if `nixl` is importable, else `nixl-memcpy` | no for tests |
+| `memory` | page table + metadata | move `KVPage` buffers | no |
+| `file` | directory of JSON blobs + pages | same, survives process restart | no |
+| `lmcache` | GPU pages keyed by `kv_root` | via LMCache if installed, else page buffers | no for tests |
+| `nixl` | wraps a backend | NIXL RDMA of pages when `nixl` posts; else `nixl-pages` | no for tests |
 
 A connector miss is a miss. Decode already succeeded if `put` fails; the runtime logs and continues. Handover without a blob is `InterestNack unknown_name`, never a silent re-prefill.
 
@@ -65,6 +65,6 @@ Per-`kv_root` asyncio lock: two concurrent Interests cannot split-brain adopt.
 
 ## What this is not
 
-This is **not** a GPU fleet. HTTP vLLM/llama.cpp adapters still re-enter admission; their prefix cache may evict. `--engine vllm-inprocess` keeps the request in `waiting` with pinned blocks. The pin pool still names the continuation across nodes.
+This is **not** a GPU fleet. HTTP vLLM/llama.cpp adapters still re-enter admission; their prefix cache may evict. `--engine vllm` keeps the request in `waiting` with pinned blocks. The pin pool still names the continuation across nodes.
 
-Real NIXL RDMA / LMCache GPU pages are optional libraries. Tests use memcpy. Metrics (`rdma_available`, `lmcache_available`) say so.
+Handover is `connector.transfer` of `KVPage`s, then `adopt(kv_root)` — **zero** `engine.prefill`. Real NIXL RDMA / LMCache GPU pages run when those libraries are installed. Metrics (`rdma_available`, `lmcache_available`, `transport`) say so.

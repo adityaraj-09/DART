@@ -144,7 +144,9 @@ async def test_memory_and_lmcache_and_nixl_connectors() -> None:
     assert nixl.transfers == 1
     assert nixl.rdma_available is False
     m = nixl.metrics()
-    assert m["transport"] == "nixl-memcpy"
+    assert m["transport"] == "nixl-pages"
+    assert moved2.page_count >= 1
+    assert "pages" in mem.metrics()
 
 
 async def test_file_connector_survives_reload(tmp_path: Path) -> None:

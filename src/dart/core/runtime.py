@@ -16,7 +16,7 @@ from typing import Any, AsyncIterator
 from dart.core.cc import CongestionController
 from dart.engine.base import Engine
 from dart.engine.stats import stats_of
-from dart.core.errors import AmplificationError, InterestNack, LeaseError, PinMissError
+from dart.core.errors import AmplificationError, InterestNack, LeaseError, PinMissError, TenantQuotaError
 from dart.kv.kvconn import KVBlob, KVConnector
 from dart.core.lease import ContinuationLease, sign_lease, verify_lease
 from dart.kv.pin import PinnedKVPool
@@ -76,6 +76,7 @@ class ContinuationHandle:
         self.lease = cont.signed
         self.model_hash = cont.model_hash
         self.kv_root = cont.state.kv_root
+        self.origin_kv_root = cont.state.kv_root
         self.pos = cont.state.pos
         self.model_id = cont.lease.model_id
 
@@ -86,9 +87,22 @@ class ContinuationHandle:
         handle.lease = data["lease"]
         handle.model_hash = data["model_hash"]
         handle.kv_root = data["kv_root"]
+        handle.origin_kv_root = data.get("origin_kv_root") or data["kv_root"]
         handle.pos = int(data["pos"])
         handle.model_id = data.get("model_id", "")
         return handle
+
+    def fork(self) -> "ContinuationHandle":
+        """Second reader: same lease, replay from the origin kv_root."""
+        copy = ContinuationHandle.__new__(ContinuationHandle)
+        copy.cont_id = self.cont_id
+        copy.lease = self.lease
+        copy.model_hash = self.model_hash
+        copy.origin_kv_root = getattr(self, "origin_kv_root", None) or self.kv_root
+        copy.kv_root = copy.origin_kv_root
+        copy.pos = 0
+        copy.model_id = self.model_id
+        return copy
 
     def token_name(self, segment: int, kv_root: str | None = None) -> str:
         return CipName.tokens(self.model_hash, kv_root or self.kv_root, segment).render()
@@ -99,6 +113,7 @@ class ContinuationHandle:
             "lease": self.lease,
             "model_hash": self.model_hash,
             "kv_root": self.kv_root,
+            "origin_kv_root": getattr(self, "origin_kv_root", self.kv_root),
             "pos": self.pos,
             "model_id": self.model_id,
         }
@@ -121,7 +136,7 @@ class DartRuntime:
             FileCAS(self.config.cas_dir) if self.config.cas_dir else MemoryCAS()
         )
         self.kv = kv or KVStore()
-        self.pin_pool = pin_pool or PinnedKVPool()
+        self.pin_pool = pin_pool if pin_pool is not None else PinnedKVPool()
         self.connector = connector
         self._conts: dict[str, Continuation] = {}
         self._task: asyncio.Task[None] | None = None
@@ -129,6 +144,7 @@ class DartRuntime:
         self._wakeup = asyncio.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
         self.started_at = time.monotonic()
+        self._tenant_interests: dict[str, int] = {}
 
     async def start(self) -> None:
         if self._task is None:
@@ -145,6 +161,8 @@ class DartRuntime:
         for c in list(self._conts.values()):
             c.closed = True
             c.done = True
+            c.cc.credits = 0
+            c.cc.in_flight = 0
             self._fail_pending(c, NackReason.EXPIRED, "runtime closed")
 
     async def open(
@@ -154,6 +172,7 @@ class DartRuntime:
         max_tokens: int | None = None,
         temperature: float = 0.8,
         model: str | None = None,
+        tenant_id: str | None = None,
     ) -> ContinuationHandle:
         await self.start()
         p = _as_prompt(prompt)
@@ -177,6 +196,8 @@ class DartRuntime:
             issued_at=now,
             producer_hint=cfg.producer_id,
             startup_credit=cfg.startup_credit,
+            tenant_id=tenant_id or cfg.default_tenant,
+            interest_quota=cfg.tenant_interest_quota,
         )
         signed = sign_lease(lease, cfg.secret)
         metrics = ContinuationMetrics(prefill_tokens=len(state.prompt_ids))
@@ -217,7 +238,7 @@ class DartRuntime:
     ) -> ContinuationHandle:
         """Install a continuation from pinned/transferred KV. Never prefills."""
         await self.start()
-        cap = verify_lease(lease, self.config.secret)
+        cap = verify_lease(lease, self.config.secrets())
         existing = self._conts.get(cap.cont_id)
         if existing is not None and not existing.handed_over and not existing.closed:
             existing.metrics.pin_hits += 1
@@ -339,8 +360,9 @@ class DartRuntime:
         token = req.lease or lease
         if not token:
             raise LeaseError("missing lease")
-        cap = verify_lease(token, self.config.secret)
+        cap = verify_lease(token, self.config.secrets())
         cap.assert_window(req.window)
+        self._charge_tenant(cap)
         cont = self.get(cap.cont_id)
         if cont.closed or cont.done or cont.handed_over:
             cached = self.cas.get_data(req.name)
@@ -429,7 +451,7 @@ class DartRuntime:
 
     async def ack(self, cont_id: str, consumed: int, lease: str | None = None) -> None:
         if lease:
-            verify_lease(lease, self.config.secret)
+            verify_lease(lease, self.config.secrets())
         cont = self.get(cont_id)
         async with cont.lock:
             n = max(0, consumed)
@@ -444,6 +466,7 @@ class DartRuntime:
             cont.closed = True
             cont.done = True
             cont.cc.credits = 0
+            cont.cc.in_flight = 0
             self.kv.sleep(cont_id)
             self._fail_pending(cont, NackReason.EXPIRED, "closed")
         await self._engine_abort(cont)
@@ -455,11 +478,17 @@ class DartRuntime:
         pacer: Any,
         *,
         max_tokens: int | None = None,
+        replay: bool = False,
     ) -> AsyncIterator[Data]:
-        """SDK helper: pacer issues Interests until stop or quota."""
+        """SDK helper: pacer issues Interests until stop or quota.
+
+        ``replay=True`` starts at ``origin_kv_root`` / segment 0 so a second
+        reader hits CAS for pages the first reader already named.
+        """
         quota = max_tokens if max_tokens is not None else self.get(handle.cont_id).max_tokens
         produced = 0
-        kv_root = handle.kv_root
+        origin = getattr(handle, "origin_kv_root", None) or handle.kv_root
+        kv_root = origin if replay else handle.kv_root
         seg = 0
         expired = 0
         while produced < quota:
@@ -565,6 +594,8 @@ class DartRuntime:
                 if hasattr(self.engine, "scheduler_snapshot")
                 else None
             ),
+            "tenants": dict(self._tenant_interests),
+            "secret_ring": len(self.config.secrets()),
         }
 
     async def engine_probe(self) -> dict[str, Any]:
@@ -623,7 +654,11 @@ class DartRuntime:
             "# HELP dart_prefills_skipped Adopts that skipped engine.prefill.",
             "# TYPE dart_prefills_skipped counter",
             f"dart_prefills_skipped {t.get('prefills_skipped', 0)}",
+            "# HELP dart_tenant_interests Interests charged per tenant.",
+            "# TYPE dart_tenant_interests gauge",
         ]
+        for tenant, n in s.get("tenants", {}).items():
+            lines.append(f'dart_tenant_interests{{tenant="{tenant}"}} {n}')
         return "\n".join(lines) + "\n"
 
     async def _scheduler_loop(self) -> None:
@@ -907,6 +942,23 @@ class DartRuntime:
         fn = getattr(self.engine, "abort_generation", None)
         if callable(fn):
             await fn(cont.state)
+
+    def rotate_secret(self, new_secret: str) -> None:
+        """Keep verifying leases signed with the previous DART_SECRET."""
+        if not new_secret:
+            raise LeaseError("new secret is empty")
+        if new_secret == self.config.secret:
+            return
+        self.config.secret_previous = self.config.secret
+        self.config.secret = new_secret
+
+    def _charge_tenant(self, cap: ContinuationLease) -> None:
+        tenant = cap.tenant_id or self.config.default_tenant
+        quota = cap.interest_quota or self.config.tenant_interest_quota
+        n = self._tenant_interests.get(tenant, 0) + 1
+        if quota > 0 and n > quota:
+            raise TenantQuotaError(f"tenant {tenant} exceeded Interest quota {quota}")
+        self._tenant_interests[tenant] = n
 
 
 def _as_prompt(prompt: Prompt | str | list[ChatMessage] | list[dict[str, str]]) -> Prompt:

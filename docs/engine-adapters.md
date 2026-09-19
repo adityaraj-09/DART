@@ -23,29 +23,30 @@ Use it for:
 
 This is not a protocol toy: the scheduler, CAS, leases, and CC are the same objects vLLM will sit behind.
 
-## VLLMChatEngine (production GPU)
+## InProcessVLLMEngine (production GPU)
 
-OpenAI-compatible HTTP to a vLLM server (`DART_VLLM_URL`, default `http://127.0.0.1:8000/v1`).
+`--engine vllm` (and `vllm-inprocess`) admits once, then parks the request in `waiting` with pinned KV when `W=0`. The next Interest resumes; it does not POST `max_tokens=W` and does not re-enter admission.
 
-Each Interest becomes `chat.completions` with `max_tokens=W`. Enable `--enable-prefix-caching` on the server so this is not a re-prefill.
+In-process `vllm.AsyncLLM` is optional behind `DART_VLLM_INPROCESS=1` when the `vllm` package is installed. Tests use `CreditGatedScheduler` + `SyntheticEngine`. CIP does not change.
+
+```bash
+dart serve --engine vllm --model meta-llama/Llama-3.1-8B-Instruct
+```
+
+## VLLMChatEngine (HTTP, re-admits)
+
+`--engine vllm-http`, or `--engine vllm` when `DART_VLLM_URL` is set. Each Interest becomes `chat.completions` with `max_tokens=W`. Enable `--enable-prefix-caching` on the server so this is not a re-prefill.
 
 Limits of the HTTP path (honest):
 
 - Token ids and real KV bytes are not returned; extents are opaque handles sized like the config.  
-- Cross-machine handover uses `KVConnector` (`--connector nixl` / `lmcache`). The HTTP adapter still does not export real GPU pages; SyntheticEngine (and in-process engines that decode from `EngineState`) adopt without re-prefill. See [`mesh.md`](./mesh.md).  
-- Per-request `waiting` with pinned blocks: `--engine vllm-inprocess` (`CreditGatedScheduler`). The HTTP adapter above still re-enters admission. See [`vllm-plugin.md`](./vllm-plugin.md).  
-- The HTTP path **re-enters admission** and **prefix cache may evict** (implicit re-prefill). See [`limitations.md`](./limitations.md). `GET /v1/engine` compares DART’s local POST count with the engine process `/metrics` forward counter.
-
-In-process `vllm.AsyncLLM` is optional behind `DART_VLLM_INPROCESS=1` when the `vllm` package is installed. CIP does not change.
+- A live continuation can 503 or re-prefill if the remote prefix cache evicts.  
+- Cross-machine handover uses `KVConnector` (`--connector nixl` / `lmcache`) and adopts `kv_root` without `engine.prefill`. See [`mesh.md`](./mesh.md).  
+- The HTTP path **re-enters admission**. See [`limitations.md`](./limitations.md). `GET /v1/engine` compares DART’s local POST count with the engine process `/metrics` forward counter.
 
 ```bash
-export DART_ENGINE=vllm
-export DART_MODEL=meta-llama/Llama-3.1-8B-Instruct
 export DART_VLLM_URL=http://127.0.0.1:8000/v1
-dart serve --engine vllm --model "$DART_MODEL"
-
-# waiting + pinned blocks (no HTTP re-entry)
-dart serve --engine vllm-inprocess
+dart serve --engine vllm-http --model "$DART_MODEL"
 ```
 
 ## HuggingFaceEngine (small real model)
@@ -58,6 +59,8 @@ dart serve --engine hf --model HuggingFaceTB/SmolLM2-135M-Instruct --port 8090
 ```
 
 The console header shows the live `model_id`. This is a real decoder, not the synthetic word list.
+
+Prefill stores Hugging Face `past_key_values` on the request. Later pages pass only the new seed token plus that cache — they do **not** re-encode the prefix. Set `DART_HF_DEVICE=cuda` for a GPU box.
 
 ## LlamaCppEngine (bench / edge)
 

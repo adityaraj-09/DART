@@ -154,17 +154,23 @@ class InterestRouter:
         max_tokens: int | None = None,
         temperature: float = 0.8,
         model: str | None = None,
+        tenant_id: str | None = None,
     ) -> ContinuationHandle:
         node = self.node(node_id) if node_id else self.cheapest()
         return await node.runtime.open(
-            prompt, max_tokens=max_tokens, temperature=temperature, model=model
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=model,
+            tenant_id=tenant_id,
         )
 
     async def route(self, req: Interest, *, lease: str | None = None) -> tuple[Data, RouteDecision]:
         token = req.lease or lease
         if not token:
             raise LeaseError("missing lease")
-        cap = verify_lease(token, self.secret)
+        secrets = self.nodes[0].runtime.config.secrets() if self.nodes else [self.secret]
+        cap = verify_lease(token, secrets)
         cap.assert_window(req.window)
 
         kv_root = req.parsed.kv_root

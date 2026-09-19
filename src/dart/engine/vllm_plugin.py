@@ -5,8 +5,8 @@ callback that exposes DART's credit-gated waiting scheduler. We do **not**
 replace vLLM's Scheduler class unless the import surface matches; a mismatch
 would take down someone else's vLLM process.
 
-In-process serving uses ``InProcessVLLMEngine`` (``--engine vllm-inprocess``).
-HTTP ``--engine vllm`` is unchanged.
+In-process serving uses ``InProcessVLLMEngine`` (``--engine vllm`` /
+``vllm-inprocess``). HTTP re-admission is ``--engine vllm-http``.
 """
 
 from __future__ import annotations

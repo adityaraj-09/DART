@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dart.eval.experiment import compare, run_workload
+from dart.eval.experiment import compare, idle_w0_forwards_flat, run_workload, two_readers_cas
 from dart.client.sdk import DartClient, DrainPacer
 
 
@@ -33,3 +33,17 @@ async def test_sdk_inprocess_stream() -> None:
         texts.append(seg.text)
     await rt.aclose()
     assert "".join(texts)
+
+
+async def test_idle_w0_leaves_forwards_flat() -> None:
+    report = await idle_w0_forwards_flat()
+    assert report["ok"] is True
+    assert report["after_idle"] == report["after_open"]
+    assert report["after_idle2"] == report["after_page"]
+
+
+async def test_two_readers_second_interest_is_cas() -> None:
+    report = await two_readers_cas()
+    assert report["ok"] is True
+    assert report["second_cache_hit"] is True
+    assert report["kernels_after_second"] == report["kernels_after_first"]

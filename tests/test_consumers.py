@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from dart.client.consumers import DrainPacer, JsonNeedPacer, ReadingPacer, TtsPacer
+from dart.client.consumers import DrainPacer, JsonNeedPacer, ReadingPacer, ToolCallPacer, TtsPacer, ViewportPacer
 
 
 async def test_reading_pacer_rate_bounds() -> None:
@@ -22,3 +22,7 @@ async def test_other_pacers() -> None:
     assert await tts.next_window() >= 1
     j = JsonNeedPacer(burst=7, pause_s=0.0)
     assert await j.next_window() == 7
+    view = ViewportPacer(burst=3)
+    view.observe(True)
+    assert await view.next_window() == 3
+    assert await ToolCallPacer(burst=2).next_window() == 2

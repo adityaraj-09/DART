@@ -6,11 +6,14 @@ import asyncio
 import time
 from typing import Any, Literal
 
+import os
+
 from dart.eval.andes import run_andes, run_push
 from dart.client.consumers import DrainPacer, JsonNeedPacer, ReadingPacer
 from dart.engine.grammar import JumpForwardEngine, LogitMaskedEngine, jump_span_launches, masked_span_launches
 from dart.engine.stats import stats_of
 from dart.engine.synthetic import SyntheticEngine
+from dart.engine.vllm_inprocess import InProcessVLLMEngine
 from dart.cip.protocol import CipName, Interest
 from dart.core.runtime import DartRuntime
 from dart.kv.store import FileCAS
@@ -104,6 +107,92 @@ async def run_idd(
 run_workload = run_idd
 
 
+def _kill_gpu_engine() -> tuple[Any, str]:
+    """Real GPU when asked; otherwise the in-process waiting scheduler."""
+    if os.environ.get("DART_KILL_GPU") in {"1", "true", "yes"}:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                from dart.engine.hf import HuggingFaceEngine
+
+                return HuggingFaceEngine(device="cuda"), "hf-cuda"
+        except Exception:
+            pass
+        eng = InProcessVLLMEngine(seed=1)
+        return eng, "vllm" if eng.backend == "vllm" else "inprocess-sched"
+    eng = InProcessVLLMEngine(seed=1)
+    return eng, "vllm" if getattr(eng, "backend", "") == "vllm" else "inprocess-sched"
+
+
+async def idle_w0_forwards_flat(*, idle_s: float = 0.08) -> dict[str, Any]:
+    """Idle W=0 must not increment the engine forward counter."""
+    eng, backend = _kill_gpu_engine()
+    rt = DartRuntime(
+        eng,
+        RuntimeConfig(poll_interval_s=0.001, decode_quota=32, t_decode_s=0.005, segment_size=8),
+    )
+    await rt.start()
+    handle = await rt.open("idle W=0 must not cook", max_tokens=32)
+    after_open = stats_of(eng).kernel_launches
+    await asyncio.sleep(idle_s)
+    after_idle = stats_of(eng).kernel_launches
+    name = CipName.tokens(handle.model_hash, handle.kv_root, 0).render()
+    data = await rt.interest(
+        Interest(name=name, window=8, lifetime_ms=2000, lease=handle.lease), lease=handle.lease
+    )
+    after_page = stats_of(eng).kernel_launches
+    await asyncio.sleep(idle_s)
+    after_idle2 = stats_of(eng).kernel_launches
+    await rt.aclose()
+    ok = after_idle == after_open and after_idle2 == after_page and after_page >= after_open
+    return {
+        "backend": backend,
+        "after_open": after_open,
+        "after_idle": after_idle,
+        "after_page": after_page,
+        "after_idle2": after_idle2,
+        "gpu": backend.endswith("cuda") or backend == "vllm",
+        "ok": ok,
+        "page_tokens": data.token_count(),
+    }
+
+
+async def two_readers_cas() -> dict[str, Any]:
+    """Two readers, one continuation: the second Interest is a CAS hit."""
+    eng = SyntheticEngine(seed=3)
+    rt = DartRuntime(eng, RuntimeConfig(poll_interval_s=0.001, decode_quota=32, segment_size=8))
+    await rt.start()
+    handle = await rt.open("two readers one continuation", max_tokens=32)
+    name = CipName.tokens(handle.model_hash, handle.kv_root, 0).render()
+    first = await rt.interest(
+        Interest(name=name, window=8, lifetime_ms=2000, lease=handle.lease), lease=handle.lease
+    )
+    launches = eng.kernel_launches
+    second = await rt.interest(
+        Interest(name=name, window=8, lifetime_ms=2000, lease=handle.lease), lease=handle.lease
+    )
+    replayed: list[str] = []
+    async for data in rt.consume(handle.fork(), DrainPacer(8), max_tokens=8, replay=True):
+        replayed.append(data.text)
+        break
+    await rt.aclose()
+    return {
+        "first_cache_hit": first.cache_hit,
+        "second_cache_hit": second.cache_hit,
+        "same_text": first.text == second.text,
+        "kernels_after_first": launches,
+        "kernels_after_second": eng.kernel_launches,
+        "replay_text": replayed[0] if replayed else "",
+        "ok": (
+            second.cache_hit is True
+            and first.text == second.text
+            and eng.kernel_launches == launches
+            and bool(replayed)
+        ),
+    }
+
+
 async def compare(
     *,
     duration_s: float = 2.0,
@@ -118,6 +207,7 @@ async def compare(
     bursty = await run_idd(
         "json", duration_s=duration_s, max_tokens=max_tokens, step_latency_s=step_latency_s
     )
+    idle = await idle_w0_forwards_flat()
 
     def _cut(metric: str) -> float | None:
         a, b = push[metric], reading[metric]
@@ -141,8 +231,11 @@ async def compare(
                 (reading["tokens_generated"] < push["tokens_generated"] * 0.9)
                 or (reading["kv_high_water"] < push["kv_high_water"])
             )
-            and reading["tokens_consumed"] > 0,
+            and reading["tokens_consumed"] > 0
+            and idle["ok"],
+            "idle_w0_forwards_flat": idle["ok"],
         },
+        "idle_w0": idle,
     }
 
 
@@ -269,6 +362,7 @@ async def paper_suite(
         cas = await cas_peer_hit(cas_dir or td)
     mesh = await mesh_handover_suite()
     waiting = await waiting_plugin_suite()
+    readers = await two_readers_cas()
     return {
         "kill_test": kill,
         "andes_complete": andes,
@@ -276,6 +370,7 @@ async def paper_suite(
         "cas_peer": cas,
         "mesh": mesh,
         "waiting_plugin": waiting,
+        "two_readers": readers,
         "limitations": "docs/limitations.md",
     }
 

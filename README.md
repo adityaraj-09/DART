@@ -131,17 +131,24 @@ Consumer                         DART                              Engine
 |---|---|
 | `--engine synthetic` | Deterministic CPU producer with real KV-extent accounting. Default for tests. Word-list output, not a language model. |
 | `--engine hf` | In-process Hugging Face model. Demo weights: **HuggingFaceTB/SmolLM2-135M-Instruct** (135M, CPU). |
-| `--engine vllm` | HTTP adapter to a live vLLM server (`DART_VLLM_URL`). Each Interest is `max_tokens=W`. Enable `--enable-prefix-caching`. |
-| `--engine vllm-inprocess` | Waiting-queue plugin: admit once, park in `waiting` with pinned KV when `W=0`. |
+| `--engine vllm` | Production: in-process waiting+pin (`InProcessVLLMEngine`). Admit once; `W=0` parks in `waiting` with pinned KV. HTTP only if `DART_VLLM_URL` is set. |
+| `--engine vllm-inprocess` | Same as `--engine vllm` without a URL: admit once, park in `waiting` with pinned KV when `W=0`. |
+| `--engine vllm-http` | HTTP adapter to a live vLLM server. Each Interest POSTs `max_tokens=W` and re-enters admission. |
 | `--engine llamacpp` | HTTP adapter to llama.cpp (`DART_LLAMACPP_URL`). |
 | `--engine cache` | CAS-only peer. Never decodes. |
 
 ```bash
 export DART_ENGINE=vllm
 export DART_MODEL=meta-llama/Llama-3.1-8B-Instruct
-export DART_VLLM_URL=http://127.0.0.1:8000/v1
 export DART_SECRET=replace-me
+export DART_SECRET_PREV=previous-secret   # optional rotation
+export DART_TENANT_QUOTA=256
+export DART_CAS_DIR=/var/dart/cas
 dart serve --engine vllm --model "$DART_MODEL"
+
+# Remote HTTP vLLM (re-enters admission) — only when you must:
+export DART_VLLM_URL=http://127.0.0.1:8000/v1
+dart serve --engine vllm-http --model "$DART_MODEL"
 ```
 
 ---
@@ -156,13 +163,15 @@ dart peer --cas-dir /var/dart/cas --port 8091      # FileCAS peer, no GPU
 dart experiment --suite paper                      # kill-test, Andes, grammar, CAS
 dart experiment --suite mesh
 dart experiment --suite waiting
+dart experiment --suite idle                       # W=0 leaves engine forwards flat
+DART_KILL_GPU=1 dart experiment --suite idle       # same probe on CUDA when present
 ```
 
 ### HTTP API
 
 | Surface | Purpose |
 |---|---|
-| `POST /v1/chat/completions` | OpenAI-compatible facade. `X-Dart-Pace`, `X-Dart-Window`. Disconnect closes the continuation. |
+| `POST /v1/chat/completions` | OpenAI-compatible facade. **`X-Dart-Pace` is the default** (reading at 30 tok/s). `X-Dart-Pace: drain` to opt out. `X-Dart-Window`, `X-Dart-Tenant`. Disconnect closes the continuation and zeroes credit. |
 | `POST /v1/continuations` + `.../interest` | CIP over HTTP |
 | `GET /v1/mesh`, `POST /v1/handover`, `GET /v1/kv` | Pin, route, adopt |
 | `WS /v1/cip` | Framed Interest / Data / Nack |
@@ -221,6 +230,6 @@ pytest -q
 
 ## Status
 
-DART is Apache-2.0. The HTTP vLLM path re-enters admission; `--engine vllm-inprocess` keeps the request in `waiting` with pinned blocks. Real NIXL RDMA and LMCache GPU pages are optional; tests use in-process memcpy.
+DART is Apache-2.0. `--engine vllm` admits once and parks in `waiting` with pinned KV. `--engine vllm-http` re-enters admission. Handover moves NIXL/LMCache pages and adopts `kv_root` with zero `engine.prefill`. SDK pacers (TTS, IntersectionObserver, JSON, tool-call) are the credit source. Rotate `DART_SECRET` / `DART_SECRET_PREV`; FileCAS and pins persist.
 
 See [limitations](docs/limitations.md) for what this repository claims and what it does not.

@@ -1,8 +1,8 @@
 # In-process vLLM waiting-queue plugin
 
-HTTP `--engine vllm` still hangs up after every Interest (`chat.completions` with `max_tokens=W`). Prefix cache *may* keep KV. Admission *will* run again.
+HTTP `--engine vllm-http` (or `--engine vllm` with `DART_VLLM_URL`) still hangs up after every Interest (`chat.completions` with `max_tokens=W`). Prefix cache *may* keep KV. Admission *will* run again. A live continuation can 503 or re-prefill.
 
-`--engine vllm-inprocess` is the scheduler plugin:
+`--engine vllm` / `--engine vllm-inprocess` is the production scheduler plugin:
 
 1. **Admit once** on `prefill` / `open()`.
 2. Request sits in **`waiting`** with **pinned GPU blocks**.
@@ -16,6 +16,7 @@ That is why it exists: not to invent credit-gated decode (DART already refuses `
 `CreditGatedScheduler` (`src/dart/engine/vllm_sched.py`) plus `InProcessVLLMEngine` (`src/dart/engine/vllm_inprocess.py`). The residual stream is `SyntheticEngine` unless `vllm` is installed **and** `DART_VLLM_INPROCESS=1`.
 
 ```bash
+dart serve --engine vllm
 dart serve --engine vllm-inprocess
 dart experiment --suite waiting
 ```
@@ -23,7 +24,8 @@ dart experiment --suite waiting
 ## What is still HTTP
 
 ```bash
-dart serve --engine vllm   # OpenAI HTTP, prefix cache, re-enters admission
+dart serve --engine vllm-http                 # OpenAI HTTP, prefix cache, re-enters admission
+DART_VLLM_URL=http://127.0.0.1:8000/v1 dart serve --engine vllm
 ```
 
 If the real vLLM V1 `Scheduler` class is importable, `dart.engine.vllm_plugin.dart_scheduler_class()` subclasses it so zero-credit running requests are parked in `waiting` instead of staying in the decode batch. The entry point `vllm.general_plugins` / `dart_idd` is a safe no-op when vLLM is absent.

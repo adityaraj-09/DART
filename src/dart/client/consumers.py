@@ -69,7 +69,7 @@ class TtsPacer:
 
 
 class JsonNeedPacer:
-    """Bursty parser: pull a span, then pause (tool-call / JSON value)."""
+    """Bursty parser: pull a span, then pause (structured JSON value)."""
 
     name = "json"
 
@@ -83,4 +83,63 @@ class JsonNeedPacer:
             await asyncio.sleep(self.pause_s)
             self._paused = False
         self._paused = True
+        return self.burst
+
+
+class ViewportPacer:
+    """Browser compositor credit: IntersectionObserver → observe(visible).
+
+    ``next_window`` blocks while the continuation is off-screen. The JS
+    companion (``dart.client.pacers``) calls ``observe(true)`` when the
+    live page intersects the viewport.
+    """
+
+    name = "viewport"
+
+    def __init__(self, burst: int = 16) -> None:
+        self.burst = burst
+        self._visible = asyncio.Event()
+
+    def observe(self, visible: bool) -> None:
+        if visible:
+            self._visible.set()
+        else:
+            self._visible.clear()
+
+    def unobserve(self) -> None:
+        self._visible.clear()
+
+    @property
+    def visible(self) -> bool:
+        return self._visible.is_set()
+
+    async def next_window(self) -> int:
+        await self._visible.wait()
+        return self.burst
+
+
+class ToolCallPacer:
+    """Tool-call burst: grant W for the call payload, then wait for ack."""
+
+    name = "tool"
+
+    def __init__(self, burst: int = 64, pause_s: float = 0.0) -> None:
+        self.burst = burst
+        self.pause_s = pause_s
+        self._armed = True
+        self._ack = asyncio.Event()
+        self._ack.set()
+
+    def ack(self) -> None:
+        """Consumer finished the tool call; more credit may issue."""
+        self._ack.set()
+        self._armed = True
+
+    async def next_window(self) -> int:
+        if not self._armed:
+            if self.pause_s > 0:
+                await asyncio.sleep(self.pause_s)
+            await self._ack.wait()
+        self._ack.clear()
+        self._armed = False
         return self.burst

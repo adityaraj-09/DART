@@ -61,5 +61,38 @@ async def test_hf_stub_credit_gate() -> None:
         blob = " ".join(texts).lower()
         assert launches["n"] >= 1
         assert "continuation" in blob
+        # Prefill encoded the prefix once; each page encodes only the new seed token.
+        assert eng.last_encode_len == 1
+        assert eng.tokens_encoded == len([7, 8, 9]) + launches["n"]
+    finally:
+        await rt.aclose()
+
+
+async def test_hf_second_page_does_not_reencode_prefix() -> None:
+    encoded: list[int] = []
+
+    def tokenize(_prompt: Prompt) -> list[int]:
+        return [1, 2, 3, 4, 5]
+
+    def generate(ids: list[int], n: int) -> tuple[list[int], str, bool]:
+        encoded.append(len(ids))
+        return list(range(n)), "word " * n, False
+
+    eng = HuggingFaceEngine(DEFAULT_HF_MODEL, tokenize_fn=tokenize, generate_fn=generate)
+    rt = DartRuntime(
+        eng,
+        RuntimeConfig(poll_interval_s=0.001, decode_quota=24, segment_size=8, interest_lifetime_s=3),
+    )
+    await rt.start()
+    try:
+        handle = await rt.open("prefix stays in past_key_values", max_tokens=16)
+        from dart.cip.protocol import CipName, Interest
+
+        n0 = CipName.tokens(handle.model_hash, handle.kv_root, 0).render()
+        d0 = await rt.interest(Interest(name=n0, window=8, lifetime_ms=2000, lease=handle.lease))
+        n1 = CipName.tokens(handle.model_hash, d0.kv_root, 1).render()
+        await rt.interest(Interest(name=n1, window=8, lifetime_ms=2000, lease=handle.lease))
+        assert encoded == [1, 1]
+        assert eng.stats.prefix_cache_hits >= 2
     finally:
         await rt.aclose()

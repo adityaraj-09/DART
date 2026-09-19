@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,6 +43,8 @@ class ContinuationLease(BaseModel):
     issued_at: float = Field(default_factory=time.time)
     producer_hint: str = "local-0"
     startup_credit: int = 16
+    tenant_id: str = "default"
+    interest_quota: int = 0
 
     def remaining_ttl(self, now: float | None = None) -> float:
         return self.expiry_unix - (now if now is not None else time.time())
@@ -64,7 +67,32 @@ def sign_lease(lease: ContinuationLease, secret: str | bytes) -> str:
     return f"{_b64e(payload)}.{_b64e(sig)}"
 
 
-def verify_lease(token: str, secret: str | bytes, *, now: float | None = None) -> ContinuationLease:
+def verify_lease(
+    token: str,
+    secret: str | bytes | Sequence[str | bytes],
+    *,
+    now: float | None = None,
+) -> ContinuationLease:
+    """Verify with the current secret, or a previous secret during rotation."""
+    secrets: list[str | bytes]
+    if isinstance(secret, (str, bytes)):
+        secrets = [secret]
+    else:
+        secrets = [s for s in secret if s]
+    if not secrets:
+        raise LeaseError("no lease secrets configured")
+    last: LeaseError | None = None
+    for item in secrets:
+        try:
+            return _verify_one(token, item, now=now)
+        except LeaseError as exc:
+            if "expired" in str(exc):
+                raise
+            last = exc
+    raise last or LeaseError("forged lease")
+
+
+def _verify_one(token: str, secret: str | bytes, *, now: float | None) -> ContinuationLease:
     key = secret.encode() if isinstance(secret, str) else secret
     try:
         payload_b64, sig_b64 = token.split(".", 1)

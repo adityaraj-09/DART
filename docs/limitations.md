@@ -6,12 +6,12 @@ DART’s claim is the inversion: **outstanding Interests are the only thing that
 
 **Do state this.** DART is not a finished GPU fleet that replaces vLLM. It is a continuation runtime and CIP control plane. vLLM and llama.cpp remain the kernels.
 
-**Do not state the stale version.** “The next slice is a live vLLM/llama.cpp process behind the same CIP” is already true: `dart serve --engine vllm` and `--engine llamacpp` sit in front of those processes today. That is the production GPU path, not future work.
+**Do not state the stale version.** “The next slice is a live vLLM/llama.cpp process behind the same CIP” is already true: `dart serve --engine vllm` (in-process waiting+pin) and `--engine llamacpp` sit in front of those processes today. That is the production GPU path, not future work.
 
 **What is actually next** (engineering, not the idea):
 
-- Optional real LMCache GPU pages / NIXL RDMA. The connectors are in-repo (`memory` / `file` / `lmcache` / `nixl`); without those libraries, transfer is memcpy and metrics say `rdma_available=false`.
-- Binding `DartCreditScheduler` into a live GPU vLLM process (`DART_VLLM_INPROCESS=1` plus the `vllm` package). The waiting-queue plugin itself is in-repo (`--engine vllm-inprocess`). See [`vllm-plugin.md`](./vllm-plugin.md).
+- Binding `DartCreditScheduler` into a live GPU vLLM process (`DART_VLLM_INPROCESS=1` plus the `vllm` package). The waiting-queue plugin itself is the `--engine vllm` default. See [`vllm-plugin.md`](./vllm-plugin.md).
+- A NIC-backed NIXL agent pair. Page transfer and `adopt` (zero `engine.prefill`) are in-repo; `rdma_available` is true only when `nixl` completes an RDMA post.
 
 Named KV handover, multi-node Interest routing, and in-process waiting+pin are implemented. Do not promise a fleet you did not build, and do not hide the adapters you did.
 
@@ -25,7 +25,7 @@ Consequences:
 - Async abort/restart races that in-process `pause_generation(mode="keep")` was built to avoid still exist on this path.
 - TTFT of Interest 0 includes remote prefill; later Interests rely on **prefix caching**, not a pinned decode request.
 
-An in-process vLLM scheduler plugin that leaves the request in `waiting` when `W=0` is implemented as `--engine vllm-inprocess` (`CreditGatedScheduler`). It tightens KV residency and admission. It does not invent credit-gated decode. The HTTP path above is unchanged. See [`vllm-plugin.md`](./vllm-plugin.md).
+An in-process vLLM scheduler plugin that leaves the request in `waiting` when `W=0` is the `--engine vllm` / `vllm-inprocess` default (`CreditGatedScheduler`). It tightens KV residency and admission. It does not invent credit-gated decode. The HTTP path is `--engine vllm-http`. See [`vllm-plugin.md`](./vllm-plugin.md).
 
 ## Prefix cache can drop KV
 
@@ -42,7 +42,7 @@ IDD still did not decode without credit. It may pay a re-prefill it would have a
 | `llamacpp_decode_calls_total` | Scraped from llama.cpp `/metrics` |
 | `dart_decode_kernel_launches` | Runtime scheduler ticks that called `engine.decode` and got `kernel_launched=True` |
 
-Paper tables must show the **engine** column. A credit-gated run with no Interests must leave the engine forward counter unchanged after prefill bookkeeping (HTTP adapters do not even POST on `open()`).
+Paper tables must show the **engine** column. A credit-gated run with no Interests must leave the engine forward counter unchanged after prefill bookkeeping (HTTP adapters do not even POST on `open()`). `dart experiment --suite idle` (or the kill-test’s `idle_w0`) asserts that: after `open()`, sleep with `W=0`, forwards stay flat. On a GPU set `DART_KILL_GPU=1` so the same probe uses `HuggingFaceEngine(device="cuda")` (or in-process vLLM when that backend is live).
 
 ## Andes-complete
 

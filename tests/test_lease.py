@@ -53,3 +53,13 @@ def test_window_cap() -> None:
     lease.assert_window(16)
     with pytest.raises(AmplificationError):
         lease.assert_window(17)
+
+
+def test_secret_rotation_ring() -> None:
+    token = sign_lease(_lease(tenant_id="acme"), "prev")
+    got = verify_lease(token, ["now", "prev"])
+    assert got.tenant_id == "acme"
+    with pytest.raises(LeaseError):
+        verify_lease(token, ["now"])
+    with pytest.raises(LeaseError):
+        verify_lease(token, [])

@@ -7,7 +7,14 @@ that may run a decode kernel.
 from dart.client.sdk import DartClient
 from dart.eval.andes import run_andes
 from dart.core.cc import CongestionController
-from dart.client.consumers import DrainPacer, JsonNeedPacer, ReadingPacer, TtsPacer
+from dart.client.consumers import (
+    DrainPacer,
+    JsonNeedPacer,
+    ReadingPacer,
+    ToolCallPacer,
+    TtsPacer,
+    ViewportPacer,
+)
 from dart.engine.base import DecodeResult, Engine, PrefillResult
 from dart.engine.cache_only import CacheOnlyEngine
 from dart.engine.stats import KernelStats, stats_of
@@ -22,11 +29,12 @@ from dart.core.errors import (
     LeaseError,
     NameParseError,
     PinMissError,
+    TenantQuotaError,
 )
 from dart.kv.kvconn import KVBlob, build_connector
 from dart.core.lease import ContinuationLease, sign_lease, verify_lease
 from dart.mesh import InterestRouter, build_local_mesh
-from dart.kv.pin import PinnedKVPool
+from dart.kv.pin import FilePinnedKVPool, PinnedKVPool
 from dart.cip.protocol import CipName, Data, Interest, Nack
 from dart.core.runtime import ContinuationHandle, DartRuntime
 from dart.core.types import RuntimeConfig
@@ -50,6 +58,7 @@ __all__ = [
     "Engine",
     "EngineError",
     "FileCAS",
+    "FilePinnedKVPool",
     "HandoverError",
     "InProcessVLLMEngine",
     "Interest",
@@ -69,7 +78,10 @@ __all__ = [
     "ReadingPacer",
     "RuntimeConfig",
     "SyntheticEngine",
+    "TenantQuotaError",
+    "ToolCallPacer",
     "TtsPacer",
+    "ViewportPacer",
     "build_connector",
     "build_local_mesh",
     "run_andes",

@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument(
         "--engine",
         default=os.environ.get("DART_ENGINE", "synthetic"),
-        help="synthetic | hf | vllm | vllm-inprocess | llamacpp | cache",
+        help="synthetic | hf | vllm | vllm-inprocess | vllm-http | llamacpp | cache",
     )
     serve.add_argument(
         "--model",
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     exp.add_argument(
         "--suite",
         default="kill",
-        choices=["kill", "andes", "grammar", "cas", "paper", "mesh", "waiting"],
+        choices=["kill", "andes", "grammar", "cas", "paper", "mesh", "waiting", "idle"],
     )
     exp.add_argument("--cas-dir", default=None)
 
@@ -134,6 +134,7 @@ def _experiment(args: argparse.Namespace) -> int:
         cas_peer_hit,
         compare,
         grammar_ablation,
+        idle_w0_forwards_flat,
         mesh_handover_suite,
         paper_suite,
         waiting_plugin_suite,
@@ -186,6 +187,11 @@ def _experiment(args: argparse.Namespace) -> int:
         json.dump(report, sys.stdout, indent=2, default=str)
         sys.stdout.write("\n")
         return 0 if report["ok"] else 1
+    if args.suite == "idle":
+        report = asyncio.run(idle_w0_forwards_flat())
+        json.dump(report, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+        return 0 if report["ok"] else 1
     report = asyncio.run(
         paper_suite(duration_s=args.seconds, max_tokens=args.max_tokens, cas_dir=args.cas_dir)
     )
@@ -198,6 +204,7 @@ def _experiment(args: argparse.Namespace) -> int:
         and report["cas_peer"]["match"]
         and report["mesh"]["ok"]
         and report["waiting_plugin"]["ok"]
+        and report["two_readers"]["ok"]
     )
     return 0 if ok else 1
 
@@ -221,6 +228,8 @@ def _print_kill(report: dict) -> int:
     print(f"KV high-water cut vs push: {kt['kv_high_water_cut_vs_push']}")
     print(f"engine kernel cut vs push: {kt.get('engine_kernel_cut_vs_push')}")
     print(f"survive inversion:         {kt['survive']}")
+    idle = report.get("idle_w0") or {}
+    print(f"idle W=0 forwards flat:    {kt.get('idle_w0_forwards_flat')} ({idle.get('backend', '')})")
     return 0 if kt["survive"] else 1
 
 

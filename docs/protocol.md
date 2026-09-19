@@ -75,11 +75,11 @@ Reasons: `no_credit`, `no_model`, `busy`, `expired`, `amplification`, `unknown_n
 
 OpenAI facade headers:
 
-- `X-Dart-Pace: 30` — grant credit at 30 tok/s (`ReadingPacer`).  
+- `X-Dart-Pace` is the **default** OpenAI path: omitted header ⇒ `ReadingPacer` at 30 tok/s.  
+- `X-Dart-Pace: 30` / `200` — reading compositor at that tok/s.  
+- `X-Dart-Pace: drain` — opt out; credit as each SSE chunk is pulled.  
 - `X-Dart-Window: 16` — segment size / burst.  
 - Client disconnect cancels the generator and **closes the continuation**.
-
-Without `X-Dart-Pace`, the facade uses `DrainPacer`: credit as each SSE chunk is pulled. That is already stronger than stock vLLM SSE, which keeps the kernel running after the gateway stops reading.
 
 ## Lease
 

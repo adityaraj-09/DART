@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 from dart.engine.fake_http import FakeCounters, create_fake_vllm_app
@@ -150,3 +151,21 @@ def test_factory_vllm_inprocess() -> None:
 
     eng = build_engine("vllm-inprocess")
     assert isinstance(eng, InProcessVLLMEngine)
+
+
+def test_factory_vllm_defaults_to_inprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dart.factory import build_engine
+
+    monkeypatch.delenv("DART_VLLM_URL", raising=False)
+    eng = build_engine("vllm")
+    assert isinstance(eng, InProcessVLLMEngine)
+
+
+def test_factory_vllm_http_when_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dart.engine.vllm import VLLMChatEngine
+    from dart.factory import build_engine
+
+    monkeypatch.setenv("DART_VLLM_URL", "http://127.0.0.1:8000/v1")
+    eng = build_engine("vllm")
+    assert isinstance(eng, VLLMChatEngine)
+    assert isinstance(build_engine("vllm-http"), VLLMChatEngine)

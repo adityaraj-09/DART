@@ -38,3 +38,7 @@ class PinMissError(DartError):
 
 class HandoverError(DartError):
     """Named KV transfer failed (connector miss or no mesh node)."""
+
+
+class TenantQuotaError(DartError):
+    """Tenant issued more Interests than its lease quota allows."""

@@ -142,7 +142,7 @@ See [congestion-control.md](./congestion-control.md). Mapping:
 
 `dart mesh --nodes 3` is the local form. [`mesh.md`](./mesh.md).
 
-**vLLM in-process plugin:** `--engine vllm-inprocess` admits once, then parks the request in `waiting` with pinned blocks when `W=0`. HTTP `--engine vllm` is unchanged. [`vllm-plugin.md`](./vllm-plugin.md).
+**vLLM in-process plugin:** `--engine vllm` admits once, then parks the request in `waiting` with pinned blocks when `W=0`. HTTP re-admission is `--engine vllm-http`. [`vllm-plugin.md`](./vllm-plugin.md).
 
 ---
 
@@ -150,7 +150,9 @@ See [congestion-control.md](./congestion-control.md). Mapping:
 
 An Interest is a compute capability.
 
-- HMAC-SHA256 lease (`src/dart/core/lease.py`), secret `DART_SECRET`.  
+- HMAC-SHA256 lease (`src/dart/core/lease.py`). Rotate with `DART_SECRET` + `DART_SECRET_PREV` (or `runtime.rotate_secret`).  
+- Per-tenant leases (`X-Dart-Tenant`) and Interest quotas (`DART_TENANT_QUOTA`). Disconnect always zeroes credit.  
+- FileCAS (`DART_CAS_DIR`) and `FilePinnedKVPool` (`DART_PIN_DIR`) persist across process restart.  
 - `window ≤ w_max` (default 128). Cache hits are free; decode spends `decode_quota`.  
 - Duplicate Interests for the same name coalesce (no extra credit).  
 - Billing unit: joules and KV-bytes per **consumed** token, plus a prefill fee.
@@ -165,9 +167,9 @@ An Interest is a compute capability.
 | CIP HTTP | `POST /v1/continuations`, `.../interest` | mesh, tools |
 | Mesh | `GET /v1/mesh`, `POST /v1/mesh/interest`, `POST /v1/handover`, `GET /v1/kv` | pin / route / adopt |
 | CIP WebSocket | `/v1/cip` | low-latency consumers |
-| OpenAI facade | `POST /v1/chat/completions` | existing apps; `X-Dart-Pace`, `X-Dart-Window` |
+| OpenAI facade | `POST /v1/chat/completions` | existing apps; `X-Dart-Pace` default (30 tok/s), `X-Dart-Window`, `X-Dart-Tenant` |
 | Metrics | `GET /metrics` Prometheus, `GET /v1/metrics` JSON | SRE |
-| SDK | `dart.client.sdk.DartClient` + pacers | product code |
+| SDK | `dart.client.sdk.DartClient` + pacers | product code; `follow()` is a second reader (CAS hit) |
 | CLI | `dart serve`, `dart mesh`, `dart experiment` | operators, kill-test, mesh |
 
 Pacers (`src/dart/client/consumers.py`):
@@ -175,7 +177,9 @@ Pacers (`src/dart/client/consumers.py`):
 - `DrainPacer` — API drainer; credit as fast as the caller pulls.  
 - `ReadingPacer(tokens_per_sec=30)` — compositor.  
 - `TtsPacer(realtime_factor=1)` — mouth as credit source.  
-- `JsonNeedPacer` — burst then pause (tool args / JSON value).
+- `JsonNeedPacer` — burst then pause (structured JSON value).  
+- `ViewportPacer` — IntersectionObserver; credit only while the live page is on screen (`src/dart/client/pacers.js`).  
+- `ToolCallPacer` — burst for a tool-call payload, then wait for `ack()`.
 
 ---
 

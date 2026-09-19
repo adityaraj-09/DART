@@ -1,7 +1,8 @@
 """In-process vLLM engine: one admission, then waiting with pinned blocks.
 
-``dart serve --engine vllm`` is still the HTTP adapter (re-enters admission).
-This module is the scheduler plugin path: ``--engine vllm-inprocess``.
+``dart serve --engine vllm`` is this engine unless ``DART_VLLM_URL`` is set
+(HTTP adapter). Production path: admit once, park in ``waiting`` with pinned
+KV when ``W=0``. ``--engine vllm-http`` is the re-admission POST path.
 
 The residual stream is SyntheticEngine unless a real ``vllm`` package is
 importable and ``DART_VLLM_INPROCESS=1`` (GPU). Tests never require that.

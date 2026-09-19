@@ -4,8 +4,10 @@ Each Interest becomes one HTTP generate of at most W tokens. Zero Interests
 ⇒ zero HTTP calls ⇒ the vLLM process records zero additional forwards.
 
 Limitation (honest): this HTTP path re-enters admission and can drop KV if
-the prefix cache evicts. Use ``InProcessVLLMEngine`` (``--engine vllm-inprocess``)
-to keep the request in ``waiting`` with pinned blocks. See docs/vllm-plugin.md.
+the prefix cache evicts. Production is ``--engine vllm`` / ``vllm-inprocess``
+(``InProcessVLLMEngine``): admit once, park in ``waiting`` with pinned
+blocks. This class is ``--engine vllm-http`` (or ``vllm`` + ``DART_VLLM_URL``).
+See docs/vllm-plugin.md.
 """
 
 from __future__ import annotations
