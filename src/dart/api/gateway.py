@@ -153,6 +153,7 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
         except (LeaseError, AmplificationError, InterestNack, PinMissError, HandoverError) as exc:
             raise HTTPException(400, str(exc)) from exc
         payload = json.loads(data.model_dump_json())
+        payload["token_count"] = data.token_count()
         if decision is not None:
             payload["route"] = decision.as_dict()
         return payload
@@ -252,7 +253,9 @@ def create_app(runtime: DartRuntime, *, router: Any | None = None) -> FastAPI:
             raise HTTPException(400, str(exc)) from exc
         except DartError as exc:
             raise HTTPException(500, str(exc)) from exc
-        return json.loads(data.model_dump_json())
+        payload = json.loads(data.model_dump_json())
+        payload["token_count"] = data.token_count()
+        return payload
 
     @app.post("/v1/continuations/{cont_id}/ack")
     async def post_ack(cont_id: str, body: AckBody) -> dict[str, str]:

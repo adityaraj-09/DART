@@ -44,7 +44,7 @@ Python 3.11+. Optional extras: `[hf]` (SmolLM2 / transformers), `[vllm]`, `[llam
 dart serve --engine synthetic --port 8090
 ```
 
-Open [http://127.0.0.1:8090](http://127.0.0.1:8090). Stream at 30 tok/s and watch kernel launches, skipped steps, and KV high-water on the right. Disconnect zeros credit and stops decode.
+Open [http://127.0.0.1:8090](http://127.0.0.1:8090). **Start reading** issues Interest #1 for 30 tokens. The kernel then pauses. **Scroll the story** (or click **Ask for next 30 tokens**) to create Interest #2. Until you do, nothing more is generated. Stop zeroes credit.
 
 The synthetic engine is a word list for tests. For a **real** (small) model on CPU:
 
@@ -53,7 +53,7 @@ pip install -e ".[hf]"
 dart serve --engine hf --model HuggingFaceTB/SmolLM2-135M-Instruct --port 8090
 ```
 
-The console header shows `HuggingFaceTB/SmolLM2-135M-Instruct · HuggingFaceEngine`. That is the model in the screenshot and [screen recording](docs/assets/smollm2_idd_console.mp4).
+The console header shows the engine. Scroll-gated Interests work the same on synthetic and Hugging Face. [Screen recording](docs/assets/smollm2_idd_console.mp4) is the older pace-stream demo.
 
 ```bash
 curl -N http://127.0.0.1:8090/v1/chat/completions \
@@ -94,6 +94,7 @@ DART inverts that. An Interest is a compute capability. Zero Interests means zer
 - **Credit-gated decode** — window `W` is tokens, not bytes. Congestion control is the scheduler.
 - **Named continuations** — live generation is an address space. Changing machines is answering the next Interest from a new locator.
 - **CAS, then pin, then decode** — named Data is free; pinned KV resumes without re-prefill; otherwise the cheapest producer runs.
+- **Scroll-gated console** — first Interest writes 30 tokens; scrolling (or the next-page button) creates the next Interest. The kernel stays paused in between.
 - **Drop-in HTTP** — OpenAI-compatible `/v1/chat/completions` with `X-Dart-Pace` / `X-Dart-Window`. Disconnect closes the continuation.
 - **Mesh** — pin holders, FileCAS peers, and NIXL/LMCache-shaped handover without live-migrating a request.
 
