@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -31,6 +33,9 @@ async def test_health_and_index(client: AsyncClient) -> None:
     assert page.status_code == 200
     assert "Interest-Driven Decode" in page.text
     assert "model-label" in page.text
+    assert "Scroll here to ask for the next" in page.text
+    assert "Ask for next 30 tokens" in page.text
+    assert "/v1/continuations" in page.text
 
 
 async def test_openai_nonstream(client: AsyncClient) -> None:
@@ -88,3 +93,62 @@ async def test_cip_http_interest(client: AsyncClient) -> None:
     assert data["kv_root"]
     closed = await client.delete(f"/v1/continuations/{body['cont_id']}")
     assert closed.status_code == 200
+
+
+@pytest.fixture
+async def demo_client() -> AsyncClient:
+    """Serve-like windows so one Interest can grant a 30-token page."""
+    rt = DartRuntime(
+        SyntheticEngine(seed=3),
+        RuntimeConfig(
+            poll_interval_s=0.001,
+            decode_quota=120,
+            w_init=32,
+            startup_credit=32,
+            segment_size=32,
+            w_max=128,
+            interest_lifetime_s=5,
+        ),
+    )
+    await rt.start()
+    app = create_app(rt)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+    await rt.aclose()
+
+
+async def test_demo_pages_are_thirty_token_interests(demo_client: AsyncClient) -> None:
+    opened = await demo_client.post(
+        "/v1/continuations",
+        json={"prompt": "Write a long essay about named continuations.", "max_tokens": 90},
+    )
+    assert opened.status_code == 200, opened.text
+    body = opened.json()
+    first = await demo_client.post(
+        f"/v1/continuations/{body['cont_id']}/interest",
+        json={"window": 30, "lifetime_ms": 5000, "lease": body["lease"]},
+    )
+    assert first.status_code == 200, first.text
+    d1 = first.json()
+    assert d1["token_count"] == 30
+    assert len(d1["token_ids"]) == 30
+
+    mid = await demo_client.get("/v1/metrics")
+    generated = mid.json()["totals"]["tokens_generated"]
+    assert generated == 30
+
+    await asyncio.sleep(0.05)
+    still = await demo_client.get("/v1/metrics")
+    assert still.json()["totals"]["tokens_generated"] == generated
+
+    second = await demo_client.post(
+        f"/v1/continuations/{body['cont_id']}/interest",
+        json={"window": 30, "lifetime_ms": 5000, "lease": body["lease"]},
+    )
+    assert second.status_code == 200, second.text
+    d2 = second.json()
+    assert d2["token_count"] == 30
+    assert d2["text"] != d1["text"]
+    after = await demo_client.get("/v1/metrics")
+    assert after.json()["totals"]["tokens_generated"] == 60

@@ -84,7 +84,18 @@ def _serve(args: argparse.Namespace) -> int:
     from dart.factory import build_runtime
     from dart.api.gateway import create_app
 
-    runtime = build_runtime(args.engine, args.model, cas_dir=args.cas_dir, connector=args.connector)
+    # Console demo pages are 30-token Interests. Grant a full page in one
+    # decode (w_init / segment_size 32). Paper-suite configs stay at 16.
+    runtime = build_runtime(
+        args.engine,
+        args.model,
+        cas_dir=args.cas_dir,
+        connector=args.connector,
+        w_init=32,
+        startup_credit=32,
+        segment_size=32,
+        interest_lifetime_s=15.0,
+    )
     app = create_app(runtime)
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload, log_level="info")
     return 0
