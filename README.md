@@ -48,7 +48,7 @@ Python 3.11+. Optional extras: `[hf]` (SmolLM2 / transformers), `[vllm]`, `[llam
 dart serve --engine synthetic --port 8090
 ```
 
-Open [http://127.0.0.1:8090](http://127.0.0.1:8090). **Start reading** issues Interest #1 for 30 tokens. The kernel then pauses. **Scroll the story** (or click **Ask for next 30 tokens**) to create Interest #2. Until you do, nothing more is generated. Stop zeroes credit.
+Open [http://127.0.0.1:8090](http://127.0.0.1:8090). **Write the first page** asks for 30 words. The AI then waits. **Scroll** (or **Write the next page**) asks for the next 30. A normal chatbot would already have dumped the rest.
 
 The synthetic engine is a word list for tests. For a **real** (small) model on CPU:
 
@@ -98,7 +98,7 @@ DART inverts that. An Interest is a compute capability. Zero Interests means zer
 - **Credit-gated decode** — window `W` is tokens, not bytes. Congestion control is the scheduler.
 - **Named continuations** — live generation is an address space. Changing machines is answering the next Interest from a new locator.
 - **CAS, then pin, then decode** — named Data is free; pinned KV resumes without re-prefill; otherwise the cheapest producer runs.
-- **Scroll-gated console** — first Interest writes 30 tokens; scrolling (or the next-page button) creates the next Interest. The kernel stays paused in between.
+- **Scroll-gated console** — page 1 is 30 words; scrolling asks for page 2. The AI stays idle in between. A normal chatbot would keep dumping text.
 - **Drop-in HTTP** — OpenAI-compatible `/v1/chat/completions` with `X-Dart-Pace` / `X-Dart-Window`. Disconnect closes the continuation.
 - **Mesh** — pin holders, FileCAS peers, and NIXL/LMCache-shaped handover without live-migrating a request.
 

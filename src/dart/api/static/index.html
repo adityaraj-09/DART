@@ -3,22 +3,22 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DART — read 30 tokens, then ask for more</title>
+  <title>DART — the AI writes one page, then waits</title>
   <style>
     :root {
       --bg: #0b0e13;
       --panel: #141a22;
-      --panel-2: #1b2330;
-      --ink: #e8eef6;
-      --muted: #8b9bb4;
+      --ink: #eef3f8;
+      --muted: #93a0b5;
       --accent: #5eead4;
       --accent-ink: #042f2e;
-      --warn: #fbbf24;
-      --paused: #f59e0b;
+      --wait: #fbbf24;
+      --wait-bg: #2a1f06;
+      --write-bg: #08332e;
       --line: #2a3444;
-      --page: #0f766e;
-      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --page: #14b8a6;
       --sans: "Segoe UI", system-ui, sans-serif;
+      --mono: ui-monospace, Menlo, Consolas, monospace;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -28,154 +28,170 @@
       display: flex; flex-direction: column;
     }
     header {
-      padding: 0.85rem 1.25rem 0.7rem;
+      padding: 0.8rem 1.2rem 0.7rem;
       border-bottom: 1px solid var(--line);
-      display: grid; grid-template-columns: 1fr auto; gap: 0.75rem 1.5rem;
-      align-items: start;
     }
-    header h1 { font-size: 1.05rem; margin: 0; letter-spacing: 0.03em; }
-    header h1 span { color: var(--accent); }
-    header .lede { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.92rem; max-width: 52rem; }
-    header .model {
+    .topline {
+      display: flex; justify-content: space-between; gap: 1rem; align-items: baseline;
+    }
+    h1 { font-size: 1.25rem; margin: 0; }
+    h1 span { color: var(--accent); font-weight: 650; }
+    .model {
       font-family: var(--mono); font-size: 0.75rem; color: var(--accent);
       text-align: right;
     }
-    .steps {
-      display: flex; gap: 0.5rem; flex-wrap: wrap; grid-column: 1 / -1;
+    .lede { margin: 0.35rem 0 0.7rem; font-size: 1.02rem; max-width: 58rem; }
+    .lede strong { color: var(--wait); }
+    .compare {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem;
     }
-    .step {
-      flex: 1; min-width: 180px; background: var(--panel);
-      border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.65rem;
-      font-size: 0.8rem; color: var(--muted);
+    .compare div {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 10px; padding: 0.55rem 0.75rem; font-size: 0.9rem;
     }
-    .step b { color: var(--ink); display: block; font-size: 0.78rem; }
-    .step em { color: var(--accent); font-style: normal; }
+    .compare b { display: block; font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .compare .yes { border-color: var(--accent); }
+    .compare .no { opacity: 0.85; }
     main {
-      flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 340px;
-      min-height: 0;
+      flex: 1; min-height: 0;
+      display: grid; grid-template-columns: minmax(0, 1fr) 360px;
     }
-    @media (max-width: 960px) {
+    @media (max-width: 980px) {
       main { grid-template-columns: 1fr; }
-      aside { border-left: 0; border-top: 1px solid var(--line); }
+      .compare { grid-template-columns: 1fr; }
     }
-    .stage { padding: 0.9rem 1.25rem; display: flex; flex-direction: column; min-height: 0; }
-    label { display: block; color: var(--muted); font-size: 0.75rem; margin: 0 0 0.25rem; }
+    .stage { padding: 0.85rem 1.2rem; display: flex; flex-direction: column; min-height: 0; }
+    label { display: block; color: var(--muted); font-size: 0.78rem; margin-bottom: 0.25rem; }
     textarea, input {
       width: 100%; background: var(--panel); color: var(--ink);
       border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.7rem;
-      font-family: inherit; font-size: 0.92rem;
+      font: inherit;
     }
-    textarea { min-height: 64px; resize: vertical; }
-    .controls { display: flex; gap: 0.6rem; align-items: end; margin-top: 0.55rem; flex-wrap: wrap; }
-    .controls .field { width: 7.5rem; }
+    textarea { min-height: 58px; resize: vertical; }
+    .controls { display: flex; gap: 0.55rem; align-items: end; flex-wrap: wrap; margin-top: 0.5rem; }
+    .field { width: 7.2rem; }
     button {
       background: var(--accent); color: var(--accent-ink); border: 0;
-      border-radius: 8px; padding: 0.65rem 0.95rem; font-weight: 700; cursor: pointer;
-      font-size: 0.92rem;
+      border-radius: 9px; padding: 0.7rem 1rem; font-weight: 750; cursor: pointer;
+      font-size: 0.95rem;
     }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
-    button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
-    button.stop { background: var(--warn); color: #1a1200; }
-    .status {
-      margin-top: 0.65rem; padding: 0.55rem 0.7rem; border-radius: 8px;
-      background: var(--panel-2); border: 1px solid var(--line);
-      font-size: 0.88rem;
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.ghost { background: #0f2a28; color: var(--accent); border: 1px solid var(--accent); }
+    button.stop { background: #b45309; color: #fff7ed; }
+    #now-card {
+      margin-top: 0.7rem; border-radius: 12px; padding: 0.75rem 0.9rem;
+      border: 2px solid var(--line); background: var(--panel);
     }
-    .status[data-kind="paused"] { border-color: var(--paused); color: #fde68a; }
-    .status[data-kind="write"] { border-color: var(--accent); color: var(--accent); }
-    .status[data-kind="idle"] { color: var(--muted); }
-    .reader-wrap {
-      margin-top: 0.65rem; flex: 1; min-height: 280px; display: flex; flex-direction: column;
+    #now-card .kicker {
+      font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
     }
+    #now-card .msg { font-size: 1.15rem; font-weight: 700; margin-top: 0.15rem; }
+    #now-card[data-kind="write"] { background: var(--write-bg); border-color: var(--accent); }
+    #now-card[data-kind="write"] .msg { color: var(--accent); }
+    #now-card[data-kind="paused"] { background: var(--wait-bg); border-color: var(--wait); }
+    #now-card[data-kind="paused"] .msg { color: var(--wait); }
+    .pages-rail { display: flex; gap: 0.4rem; margin-top: 0.55rem; flex-wrap: wrap; }
+    .pill {
+      border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.65rem;
+      font-size: 0.78rem; color: var(--muted);
+    }
+    .pill.done { border-color: var(--accent); color: var(--accent); }
+    .pill.live { border-color: var(--wait); color: var(--wait); }
     #reader {
-      flex: 1; min-height: 280px; overflow: auto; background: var(--panel);
-      border: 1px solid var(--line); border-radius: 10px; padding: 0.75rem 0.85rem 1.2rem;
+      flex: 1; min-height: 260px; margin-top: 0.65rem; overflow: auto;
+      background: #10161e; border: 1px solid var(--line); border-radius: 12px;
+      padding: 0.8rem 0.9rem 1.2rem;
     }
     .page {
-      min-height: calc(100% - 12px); padding: 0.7rem 0.75rem 2.4rem;
-      border-left: 3px solid var(--page); background: #0f161c;
-      border-radius: 0 8px 8px 0; margin-bottom: 0.85rem;
+      min-height: calc(100% - 8px); background: #18202b; border-radius: 10px;
+      padding: 0.85rem 1rem 2.2rem; margin-bottom: 0.8rem;
+      border-left: 6px solid var(--page);
     }
-    .page .meta {
-      font-family: var(--mono); font-size: 0.72rem; color: var(--accent);
-      margin-bottom: 0.45rem; letter-spacing: 0.02em;
-    }
-    .page .body { white-space: pre-wrap; font-size: 0.98rem; }
+    .page .meta { color: var(--accent); font-weight: 700; margin-bottom: 0.45rem; font-size: 0.92rem; }
+    .page .body { font-size: 1.12rem; white-space: pre-wrap; }
     #more-sentinel {
-      text-align: center; padding: 1.1rem 0.75rem 1.4rem; color: var(--muted);
-      border: 1px dashed var(--line); border-radius: 8px; font-size: 0.88rem;
+      text-align: center; padding: 1.3rem 0.8rem; border: 2px dashed var(--wait);
+      border-radius: 12px; background: var(--wait-bg); color: #fde68a;
     }
-    #more-sentinel strong { color: var(--warn); display: block; margin-bottom: 0.35rem; }
+    #more-sentinel strong { display: block; font-size: 1.15rem; margin-bottom: 0.3rem; }
     #more-sentinel.hidden { display: none; }
-    aside { border-left: 1px solid var(--line); background: #0e131a; padding: 0.9rem 1rem; overflow: auto; }
+    aside {
+      border-left: 1px solid var(--line); background: #0e131a;
+      padding: 0.85rem 1rem; overflow: auto;
+    }
     aside h2 {
-      font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
-      color: var(--muted); margin: 0 0 0.45rem;
+      margin: 0 0 0.4rem; font-size: 0.72rem; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--muted);
     }
     aside h2 + h2 { margin-top: 1rem; }
-    .metric {
-      display: flex; justify-content: space-between; padding: 0.32rem 0;
-      border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 0.8rem;
-    }
+    .story { font-size: 0.95rem; }
+    .story li { margin: 0.35rem 0; }
+    .metric { padding: 0.45rem 0; border-bottom: 1px solid var(--line); }
+    .metric .row { display: flex; justify-content: space-between; gap: 0.6rem; font-size: 0.88rem; }
     .metric b { color: var(--accent); }
-    .log { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
-    .log .row { padding: 0.28rem 0; border-bottom: 1px solid var(--line); }
-    .log .row.write { color: var(--accent); }
-    .log .row.wait { color: var(--warn); }
-    .hint { color: var(--muted); font-size: 0.78rem; margin-top: 0.75rem; }
+    .metric p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.35; }
+    details { margin-top: 0.85rem; color: var(--muted); font-size: 0.82rem; }
+    details summary { cursor: pointer; color: var(--ink); }
+    .hint { color: var(--muted); font-size: 0.88rem; }
   </style>
 </head>
 <body>
   <header>
-    <div>
-      <h1>DART <span>Interest-Driven Decode</span></h1>
-      <p class="lede">
-        The model writes <strong>only the next 30 tokens you ask for</strong>.
-        Scrolling down creates the next Interest. If you stop scrolling, the kernel stays paused.
-      </p>
+    <div class="topline">
+      <h1>DART <span>writes one short page, then waits</span></h1>
+      <div class="model" id="model-label">Loading model…</div>
     </div>
-    <div class="model" id="model-label">Loading engine…</div>
-    <div class="steps" id="how-it-works">
-      <div class="step"><b>1. Start reading</b>Opens a continuation. Prefill once. No decode yet.</div>
-      <div class="step"><b>2. First Interest</b>Asks for <em>30 tokens</em>. Those appear as Part 1.</div>
-      <div class="step"><b>3. Scroll = next Interest</b>Part 2 is another 30. Until you scroll, nothing is generated.</div>
+    <p class="lede">
+      A normal chat app dumps the whole answer as fast as it can.
+      Here the AI writes <strong>about 30 words</strong>, then <strong>stops</strong>.
+      Scroll down to ask for the next 30. If you stop scrolling, it does not keep writing.
+    </p>
+    <div class="compare" id="how-it-works">
+      <div class="no"><b>Normal chatbot</b>Keeps generating the whole essay whether you are reading or not.</div>
+      <div class="yes"><b>This demo</b>Page 1 = 30 words. Scroll = page 2. Until you scroll, the AI is idle.</div>
     </div>
   </header>
   <main>
     <section class="stage">
-      <label for="prompt">Prompt</label>
-      <textarea id="prompt">Write a clear, friendly explanation of why the sky looks blue. Keep going with everyday examples so a reader can scroll through several short parts.</textarea>
+      <label for="prompt">Your question</label>
+      <textarea id="prompt">Write a clear, friendly explanation of why the sky looks blue. Keep going with everyday examples so a reader can turn several short pages.</textarea>
       <div class="controls">
         <div class="field">
-          <label for="page">Tokens per Interest</label>
-          <input id="page" type="number" min="8" max="64" value="30" />
+          <label for="page">Words per page</label>
+          <input id="page" type="number" min="8" max="64" value="30" title="Interest window W. Each scroll asks for this many tokens." />
         </div>
         <div class="field">
-          <label for="max">Max tokens</label>
-          <input id="max" type="number" min="30" max="512" value="120" />
+          <label for="max">Stop after</label>
+          <input id="max" type="number" min="30" max="512" value="120" title="max_tokens. Hard cap for the whole answer." />
         </div>
-        <button id="go" type="button">Start reading</button>
-        <button id="next" class="ghost" type="button" disabled>Ask for next 30 tokens</button>
-        <button id="stop" class="stop" type="button" disabled>Stop (zero credit)</button>
+        <button id="go" type="button">Write the first page</button>
+        <button id="next" class="ghost" type="button" disabled>Write the next page</button>
+        <button id="stop" class="stop" type="button" disabled>Stop writing</button>
       </div>
-      <div class="status" id="status" data-kind="idle">Ready. Click Start reading — the first Interest will ask for 30 tokens.</div>
-      <div class="reader-wrap">
-        <div id="reader" aria-live="polite">
-          <p class="hint" id="placeholder">Nothing written yet. Start reading to issue Interest #1.</p>
-        </div>
+      <div id="now-card" data-kind="idle">
+        <div class="kicker">Right now</div>
+        <div class="msg" id="status">Ready. Click “Write the first page” — the AI will write only 30 words, then wait.</div>
+      </div>
+      <div class="pages-rail" id="rail"></div>
+      <div id="reader" aria-live="polite">
+        <p class="hint" id="placeholder">Nothing on the page yet. The first click asks for 30 words. That ask is called an Interest.</p>
       </div>
     </section>
     <aside>
-      <h2>What is happening</h2>
-      <div id="now" class="hint">No continuation open.</div>
-      <h2>Interest log</h2>
-      <div class="log" id="log"><div class="row">Waiting…</div></div>
-      <h2>Live metrics</h2>
-      <div id="metrics"><p class="hint">Metrics appear after the first Interest.</p></div>
-      <p class="hint">
-        An Interest is a compute capability: name + window W (here 30 tokens).
-        Zero Interests means zero decode. Disconnect / Stop zeroes credit.
-      </p>
+      <h2>The story so far</h2>
+      <ol class="story" id="log">
+        <li>Waiting for you to start.</li>
+      </ol>
+      <h2>What the numbers mean</h2>
+      <div id="metrics"><p class="hint">Each score has a one-line definition. Paused ticks going up means the model is waiting, not writing.</p></div>
+      <details>
+        <summary>Technical names (optional)</summary>
+        <p class="hint" id="now">
+          Each page is an Interest: a request for a token window W (here 30).
+          Zero Interests means zero decode. Stop closes the continuation and zeroes credit.
+        </p>
+        <p class="hint">Interest-Driven Decode · CIP · <code>/v1/continuations</code></p>
+      </details>
     </aside>
   </main>
   <script>
@@ -185,10 +201,12 @@
     const nextBtn = document.getElementById("next");
     const stopBtn = document.getElementById("stop");
     const status = document.getElementById("status");
+    const nowCard = document.getElementById("now-card");
     const metrics = document.getElementById("metrics");
     const modelLabel = document.getElementById("model-label");
     const logEl = document.getElementById("log");
     const nowEl = document.getElementById("now");
+    const rail = document.getElementById("rail");
 
     let dartModel = "dart-synth-8b";
     let handle = null;
@@ -205,42 +223,91 @@
 
     function setStatus(text, kind) {
       status.textContent = text;
-      status.dataset.kind = kind || "idle";
+      nowCard.dataset.kind = kind || "idle";
     }
 
     function renderLog() {
       if (!logRows.length) {
-        logEl.innerHTML = '<div class="row">Waiting…</div>';
+        logEl.innerHTML = "<li>Waiting for you to start.</li>";
         return;
       }
-      logEl.innerHTML = logRows.map((r) =>
-        `<div class="row ${r.cls}">#${r.n} · ${r.text}</div>`
-      ).join("");
+      logEl.innerHTML = logRows.map((r) => `<li>${r}</li>`).join("");
+    }
+
+    function renderRail() {
+      const cap = Number(document.getElementById("max").value) || 120;
+      const total = Math.max(pages + (done ? 0 : 1), Math.ceil(cap / pageSize()));
+      const bits = [];
+      for (let i = 1; i <= total; i++) {
+        let cls = "pill";
+        let label = "Page " + i;
+        if (i < pages || (i === pages && !busy)) { cls += " done"; label += " · done"; }
+        else if (i === pages + 1 && busy) { cls += " live"; label += " · writing"; }
+        else if (i === pages + 1 && !done) { cls += " live"; label += " · scroll for this"; }
+        else label += " · later";
+        bits.push(`<span class="${cls}">${label}</span>`);
+      }
+      rail.innerHTML = bits.join("");
     }
 
     async function refreshHealth() {
       const r = await fetch("/health");
       const j = await r.json();
       dartModel = j.engine || dartModel;
-      const klass = j.engine_class ? ` · ${j.engine_class}` : "";
-      modelLabel.textContent = dartModel + klass;
+      const pretty = dartModel.includes("SmolLM") ? "Small real model (SmolLM2)" : dartModel;
+      const klass = j.engine_class && j.engine_class.includes("HuggingFace") ? " · Hugging Face" : "";
+      modelLabel.textContent = pretty + klass;
     }
 
     async function refreshMetrics() {
       const r = await fetch("/v1/metrics");
       const j = await r.json();
       const t = j.totals || {};
+      const extra = Math.max(0, (t.tokens_generated || 0) - shown);
       metrics.innerHTML = [
-        ["tokens shown (this read)", shown],
-        ["generated (kernel)", t.tokens_generated],
-        ["consumed", t.tokens_consumed],
-        ["unread inventory", t.tokens_generated_unconsumed],
-        ["kernel launches", t.decode_kernel_launches],
-        ["paused ticks (W=0)", t.decode_steps_skipped],
-        ["cache hits", t.cache_hits],
-        ["KV bytes", j.kv_bytes],
-        ["KV high water", j.kv_high_water],
-      ].map(([k, v]) => `<div class="metric"><span>${k}</span><b>${v ?? 0}</b></div>`).join("");
+        [
+          "Words on your pages",
+          shown,
+          "How many tokens you already received as pages. One token is roughly a short word.",
+        ],
+        [
+          "Words the AI actually wrote",
+          t.tokens_generated,
+          "tokens_generated — residual-stream steps that ran. Should match the pages you asked for.",
+        ],
+        [
+          "Extra unread words",
+          t.tokens_generated_unconsumed ?? extra,
+          "Generated but not shown. DART aims for 0. A normal chatbot piles these up in a buffer.",
+        ],
+        [
+          "Times the AI ran",
+          t.decode_kernel_launches,
+          "Kernel launches. One per page in this demo (Interest #1, #2, #3…).",
+        ],
+        [
+          "Paused ticks",
+          t.decode_steps_skipped,
+          "Heartbeats where DART woke up, you had not asked for more (credit W=0), and it did not run the model. This number climbing is the point: waiting, not writing.",
+        ],
+        [
+          "Cache hits",
+          t.cache_hits,
+          "A later ask for the same named page was answered from storage. No model run.",
+        ],
+        [
+          "Memory for this answer (KV)",
+          j.kv_bytes,
+          "Bytes of key–value cache for the live story. Grows only as new pages are written.",
+        ],
+        [
+          "Peak memory (KV high water)",
+          j.kv_high_water,
+          "Highest KV bytes so far. Push serving grows this for unread text; credit-gating keeps it smaller.",
+        ],
+      ].map(([k, v, why]) =>
+        `<div class="metric"><div class="row"><span>${k}</span><b>${v ?? 0}</b></div><p>${why}</p></div>`
+      ).join("");
     }
 
     function ensureSentinel() {
@@ -248,8 +315,7 @@
       if (el) return el;
       el = document.createElement("div");
       el.id = "more-sentinel";
-      el.innerHTML = "<strong>Scroll here to ask for the next 30 tokens</strong>That scroll is Interest #" +
-        (pages + 1) + ". The kernel is paused until you do.";
+      el.innerHTML = "<strong>Scroll here to ask for the next 30 tokens</strong>Turn the page. The AI is waiting.";
       reader.appendChild(el);
       return el;
     }
@@ -263,7 +329,7 @@
       }
       el.classList.remove("hidden");
       el.innerHTML = `<strong>Scroll here to ask for the next ${w} tokens</strong>` +
-        `Kernel paused. This creates Interest #${pages + 1}. You can also use the button.`;
+        `This is how you turn the page. Or click “Write the next page”.`;
     }
 
     function appendPage(data) {
@@ -276,8 +342,7 @@
       card.className = "page";
       card.dataset.interest = String(pages);
       card.innerHTML =
-        `<div class="meta">Part ${pages} · Interest #${pages} · asked ${pageSize()} tokens · got ${n}` +
-        `${data.cache_hit ? " · cache hit" : " · kernel ran"}</div>` +
+        `<div class="meta">Page ${pages} · ${n} words · you asked, then it wrote this</div>` +
         `<div class="body">${escapeHtml(data.text || "")}</div>`;
       const sentinel = document.getElementById("more-sentinel");
       if (sentinel) reader.insertBefore(card, sentinel);
@@ -300,10 +365,11 @@
       nextBtn.disabled = true;
       const w = pageSize();
       const n = pages + 1;
-      setStatus(`Interest #${n}: asking for ${w} tokens. The kernel may run now.`, "write");
-      nowEl.textContent = `Continuation ${handle.cont_id.slice(0, 8)}… · Interest #${n} in flight.`;
-      logRows.push({ n, cls: "wait", text: `asked ${w} · waiting for Data` });
+      setStatus(`Writing page ${n}… about ${w} words. A normal app would already be dumping the rest.`, "write");
+      nowEl.textContent = `Interest #${n} in flight (window ${w}).`;
+      logRows.push(`Asked for page ${n} (${w} words).`);
       renderLog();
+      renderRail();
       let data = null;
       for (let attempt = 0; attempt < 6; attempt++) {
         const res = await fetch(`/v1/continuations/${handle.cont_id}/interest`, {
@@ -315,11 +381,12 @@
         if (res.ok) { data = body; break; }
         const detail = String(body.detail || body.message || res.status);
         if (res.status === 400 && /expired/i.test(detail) && attempt < 5) continue;
-        setStatus("Interest failed: " + detail, "idle");
-        logRows[logRows.length - 1] = { n, cls: "wait", text: "nack · " + detail };
+        setStatus("Could not write that page: " + detail, "idle");
+        logRows[logRows.length - 1] = `Page ${n} failed.`;
         renderLog();
         busy = false;
         nextBtn.disabled = done;
+        renderRail();
         return;
       }
       const got = data.token_count || (data.token_ids || []).length || 0;
@@ -331,42 +398,39 @@
         }).catch(() => {});
       }
       appendPage(data);
-      logRows[logRows.length - 1] = {
-        n, cls: "write",
-        text: `got ${got} · ${data.cache_hit ? "CAS hit" : "kernel ran"}`,
-      };
+      logRows[logRows.length - 1] = `Page ${n} arrived (${got} words). The AI stopped.`;
       renderLog();
       const cap = Number(document.getElementById("max").value) || 120;
       if (data.stopped || shown >= cap || got <= 0) {
         done = true;
-        setStatus(`Finished after ${pages} Interest${pages === 1 ? "" : "s"} · ${shown} tokens shown. Kernel will not run again.`, "idle");
-        nowEl.textContent = "Continuation finished. No more credit.";
+        setStatus(`Done. You received ${pages} short pages (${shown} words). The AI will not write more.`, "idle");
         nextBtn.disabled = true;
         updateSentinel();
       } else {
-        setStatus(`Wrote ${got} tokens in Part ${pages}. Kernel paused until you scroll or click for the next ${w}.`, "paused");
-        nowEl.textContent = "Waiting for you. Scroll the story (or click Ask for next 30) to create the next Interest.";
+        setStatus(`Page ${pages} is done (${got} words). The AI is waiting. Scroll down for page ${pages + 1}.`, "paused");
         nextBtn.disabled = false;
-        nextBtn.textContent = `Ask for next ${w} tokens`;
+        nextBtn.textContent = "Write the next page";
         allowScrollAsk = true;
         updateSentinel();
       }
+      renderRail();
       await refreshMetrics();
       busy = false;
     }
 
     async function startReading() {
       if (handle) await closeCont();
-      reader.innerHTML = '<p class="hint" id="placeholder">Opening a continuation…</p>';
+      reader.innerHTML = '<p class="hint" id="placeholder">Getting ready. The AI has not written the answer yet.</p>';
       logRows = [];
       pages = 0;
       shown = 0;
       done = false;
       allowScrollAsk = false;
-      setStatus("Prefill only — opening a continuation. Decode has not started.", "write");
+      setStatus("Getting ready… still no answer on the page.", "write");
       go.disabled = true;
       stopBtn.disabled = false;
       nextBtn.disabled = true;
+      renderRail();
       const opened = await fetch("/v1/continuations", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -378,11 +442,11 @@
       });
       handle = await opened.json();
       if (!opened.ok) {
-        setStatus("Could not open continuation: " + (handle.detail || opened.status), "idle");
+        setStatus("Could not start: " + (handle.detail || opened.status), "idle");
         go.disabled = false;
         return;
       }
-      nowEl.textContent = `Continuation ${handle.cont_id.slice(0, 8)}… ready. kv_root ${handle.kv_root.slice(0, 8)}…`;
+      nowEl.textContent = `Continuation open. Next step is Interest #1 for ${pageSize()} tokens.`;
       await askPage();
       go.disabled = false;
       go.textContent = "Start over";
@@ -407,15 +471,18 @@
       nextBtn.disabled = true;
       stopBtn.disabled = true;
       await closeCont();
-      setStatus("Stopped. Credit is zero — the kernel will not write more.", "idle");
-      nowEl.textContent = "Continuation closed.";
+      setStatus("You stopped it. The AI will not write more.", "idle");
+      logRows.push("You hit stop.");
+      renderLog();
       updateSentinel();
+      renderRail();
       refreshMetrics();
     });
     reader.addEventListener("scroll", maybeScrollAsk, { passive: true });
 
     refreshHealth();
     refreshMetrics();
+    renderRail();
     setInterval(refreshMetrics, 2000);
   </script>
 </body>
