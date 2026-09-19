@@ -92,7 +92,7 @@
       border: 1px solid var(--line); border-radius: 10px; padding: 0.75rem 0.85rem 1.2rem;
     }
     .page {
-      min-height: 240px; padding: 0.7rem 0.75rem 1rem;
+      min-height: calc(100% - 12px); padding: 0.7rem 0.75rem 2.4rem;
       border-left: 3px solid var(--page); background: #0f161c;
       border-radius: 0 8px 8px 0; margin-bottom: 0.85rem;
     }
@@ -309,7 +309,7 @@
         const res = await fetch(`/v1/continuations/${handle.cont_id}/interest`, {
           method: "POST",
           headers: { "content-type": "application/json", "X-Dart-Lease": handle.lease },
-          body: JSON.stringify({ window: w, lifetime_ms: 20000, lease: handle.lease }),
+          body: JSON.stringify({ window: w, lifetime_ms: 60000, lease: handle.lease }),
         });
         const body = await res.json().catch(() => ({}));
         if (res.ok) { data = body; break; }
@@ -323,6 +323,13 @@
         return;
       }
       const got = data.token_count || (data.token_ids || []).length || 0;
+      if (got) {
+        await fetch(`/v1/continuations/${handle.cont_id}/ack`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ consumed: got, lease: handle.lease }),
+        }).catch(() => {});
+      }
       appendPage(data);
       logRows[logRows.length - 1] = {
         n, cls: "write",

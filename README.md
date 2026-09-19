@@ -17,12 +17,16 @@ It is a control plane, not a GPU fleet. vLLM and llama.cpp stay the kernels.
 ```
 
 <p align="center">
-  <img src="docs/assets/console.png" alt="DART console streaming HuggingFaceTB/SmolLM2-135M-Instruct with live credit and KV metrics" width="920" />
+  <img src="docs/assets/console.png" alt="DART console: three steps, Start reading, and a 30-token Interest window" width="920" />
 </p>
 
-<p align="center"><sub>Model used: <b>HuggingFaceTB/SmolLM2-135M-Instruct</b> (135M parameters, CPU, <code>--engine hf</code>).</sub></p>
+<p align="center">
+  <img src="docs/assets/console_part1.png" alt="Part 1 after Interest #1: 30 tokens written, kernel paused until scroll" width="920" />
+</p>
 
-[Screen recording — SmolLM2 credit-window stream](docs/assets/smollm2_idd_console.mp4)
+<p align="center"><sub>Model: <b>HuggingFaceTB/SmolLM2-135M-Instruct</b> (135M, CPU, <code>--engine hf</code>). Interest #1 writes 30 tokens; the kernel stays paused until you scroll.</sub></p>
+
+[Screen recording — scroll-gated 30-token Interests](docs/assets/scroll_gated_idd_console.mp4)
 
 ---
 
@@ -53,7 +57,7 @@ pip install -e ".[hf]"
 dart serve --engine hf --model HuggingFaceTB/SmolLM2-135M-Instruct --port 8090
 ```
 
-The console header shows the engine. Scroll-gated Interests work the same on synthetic and Hugging Face. [Screen recording](docs/assets/smollm2_idd_console.mp4) is the older pace-stream demo.
+The console header shows the engine. Scroll-gated Interests work the same on synthetic and Hugging Face. [Screen recording](docs/assets/scroll_gated_idd_console.mp4) walks through three 30-token parts.
 
 ```bash
 curl -N http://127.0.0.1:8090/v1/chat/completions \
