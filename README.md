@@ -17,16 +17,12 @@ It is a control plane, not a GPU fleet. vLLM and llama.cpp stay the kernels.
 ```
 
 <p align="center">
-  <img src="docs/assets/console.png" alt="DART console: three steps, Start reading, and a 30-token Interest window" width="920" />
-</p>
-
-<p align="center">
-  <img src="docs/assets/console_part1.png" alt="Part 1 after Interest #1: 30 tokens written, kernel paused until scroll" width="920" />
+  <img src="docs/assets/Screenshot%202026-09-27%20at%204.22.07%E2%80%AFPM.png" alt="DART console: scroll-gated Interests and a 30-token window" width="920" />
 </p>
 
 <p align="center"><sub>Model: <b>HuggingFaceTB/SmolLM2-135M-Instruct</b> (135M, CPU, <code>--engine hf</code>). Interest #1 writes 30 tokens; the kernel stays paused until you scroll.</sub></p>
 
-[Screen recording — scroll-gated 30-token Interests](docs/assets/scroll_gated_idd_console.mp4)
+[Screen recording — scroll-gated 30-token Interests](docs/assets/Screen%20Recording%202026-09-27%20at%204.22.53%E2%80%AFPM.mov)
 
 ---
 
@@ -57,7 +53,7 @@ pip install -e ".[hf]"
 dart serve --engine hf --model HuggingFaceTB/SmolLM2-135M-Instruct --port 8090
 ```
 
-The console header shows the engine. Scroll-gated Interests work the same on synthetic and Hugging Face. [Screen recording](docs/assets/scroll_gated_idd_console.mp4) walks through three 30-token parts.
+The console header shows the engine. Scroll-gated Interests work the same on synthetic and Hugging Face. [Screen recording](docs/assets/Screen%20Recording%202026-09-27%20at%204.22.53%E2%80%AFPM.mov) walks through three 30-token parts.
 
 ```bash
 curl -N http://127.0.0.1:8090/v1/chat/completions \
