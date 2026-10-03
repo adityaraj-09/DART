@@ -173,7 +173,7 @@ python -m dart serve   --engine synthetic --port 8090
 python -m dart serve   --engine hf --port 8090
 python -m dart mesh    --nodes 3 --connector memory --port 8090
 python -m dart peer    --cas-dir /var/dart/cas --port 8091
-python -m dart experiment --suite paper    # kill-test, Andes, grammar, CAS peer
+python -m dart experiment --suite kill     # IDD vs push; use --suite andes, grammar, cas as needed
 python -m dart experiment --suite idle     # W=0 must not advance engine forwards
 python -m dart experiment --suite waiting  # in-process vLLM pin path
 python -m dart experiment --suite mesh
@@ -208,7 +208,6 @@ python -m dart experiment --suite mesh
 | [vLLM waiting plugin](docs/vllm-plugin.md) | In-process `waiting` + pinned blocks |
 | [Mesh](docs/mesh.md) | Pin, handover, routing |
 | [Limitations](docs/limitations.md) | HTTP admission, prefix cache, scope |
-| [Paper (PDF)](paper/dart_idd.pdf) | arXiv-style preprint |
 
 ---
 
@@ -216,10 +215,9 @@ python -m dart experiment --suite mesh
 
 ```bash
 pytest -q
-cd paper && make    # build dart_idd.pdf when LaTeX is installed
 ```
 
-Layout: `src/dart/` (runtime, CIP, engines, API, client, eval), `docs/`, `tests/`, `paper/`.
+Layout: `src/dart/` (runtime, CIP, engines, API, client, eval), `docs/`, `tests/`.
 
 ---
 
