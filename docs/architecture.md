@@ -51,10 +51,10 @@ Andes noticed humans read slower than GPUs generate, then still generated and bu
               │
         ┌─────┴───────────┬─────────────────┐
         ▼                 ▼                 ▼
-   SyntheticEngine    VLLMChatEngine   LlamaCppEngine
-   (CPU, tests,       (prod GPU,       (bench / edge)
-    kill-test)         prefix-cached
-                       max_tokens=W)
+   SyntheticEngine    InProcessVLLM    LlamaCppEngine
+   (CPU, tests)       (prod GPU pin)   (HTTP / edge)
+                      VLLMChatEngine
+                      (HTTP re-admit)
 ```
 
 | Layer | Reuse | Invent |
@@ -65,7 +65,7 @@ Andes noticed humans read slower than GPUs generate, then still generated and bu
 | Delivery | HTTP/2, WHATWG streams, SSE | Token window, not a byte window |
 | Occupancy fill | Prefill, batch jobs | Never fill with unread tokens |
 
-We **do not** ship a new CUDA kernel, NDN stack, or IETF draft. MOQT is a future *delivery* profile, not the decode authorizer.
+We **do not** ship a new CUDA kernel or a full NDN stack. Delivery stays HTTP/WebSocket v1; decode authorization stays on CIP Interests.
 
 ---
 

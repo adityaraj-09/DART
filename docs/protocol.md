@@ -88,14 +88,3 @@ OpenAI facade headers:
 Fields: `cont_id`, `model_hash`, `model_id`, `kv_root`, `pos`, `w_max`, `decode_quota`, `expiry_unix`, `producer_hint`, `startup_credit`.
 
 Secret: `DART_SECRET`. Default is a dev string; set it in production.
-
-## MOQT later
-
-`draft-liu-moq-live-agent-interaction` maps token *batches* onto MOQ objects and does not authorize decode. A future profile:
-
-- Interest → `SUBSCRIBE` with a token window  
-- Data → Object on `output/text`  
-- grammar span → one Object / Subgroup  
-- barge-in datagram → cancel outstanding Interests (stop decode)
-
-Do not wait on that draft to ship v1.

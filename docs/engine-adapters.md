@@ -64,7 +64,7 @@ Prefill stores Hugging Face `past_key_values` on the request. Later pages pass o
 
 ## LlamaCppEngine (bench / edge)
 
-`POST /completion` with `n_predict=W` and `cache_prompt=true`. Matches the “afternoon kill-test on llama.cpp” slice, but already wired through CIP so you do not throw the loop away.
+`POST /completion` with `n_predict=W` and `cache_prompt=true`, wired through the same CIP credit gate as vLLM.
 
 ```bash
 export DART_ENGINE=llamacpp
